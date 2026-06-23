@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 // Replace LEAD_WEBHOOK_URL with your Zapier / Make.com / HubSpot webhook endpoint.
 // Replace BOOKING_URL with your Calendly or Microsoft Bookings link.
 const LEAD_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwcb3ONLg6Gr356ilKKnkBgwhNdKNmrKqEH7nsawHZQTJOX6hGXM4xctmXsjyGW12-X/exec";
-const BOOKING_URL      = "https://calendly.com/indiaide";
+const BOOKING_URL      = "https://calendly.com/indiaide-scheduling/30min";
 
 // ─── Brand ────────────────────────────────────────────────────────────────────
 const BRAND       = "#7a02b2";
@@ -98,8 +98,8 @@ const DEVICE_BILL_PCT    = 0.50;
 const CLINICIAN_BILL_PCT = 0.50;
 
 const ADOPTION = [
-  { key:"low",  pct:0.50, label:"50%", desc:"Conservative" },
-  { key:"mid",  pct:0.62, label:"62%", desc:"Expected" },
+  { key:"low",  pct:0.25, label:"25%", desc:"Conservative" },
+  { key:"mid",  pct:0.50, label:"50%", desc:"Expected" },
   { key:"high", pct:0.75, label:"75%", desc:"Optimistic" },
 ];
 
@@ -259,7 +259,7 @@ function GateScreen({ onSubmit }) {
     width:"100%", padding:"10px 12px", boxSizing:"border-box",
     border:`1.5px solid ${errors[field] ? "#EF4444" : "#E2E8F0"}`,
     borderRadius:8, fontSize:14, color:"#0F172A", background:"#fff",
-    outline:"none",
+    outline:"none", colorScheme:"light",
   });
 
   function validate() {
@@ -292,7 +292,7 @@ function GateScreen({ onSubmit }) {
   );
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",minHeight:"100vh",background:`linear-gradient(145deg, ${BRAND_BG} 0%, #fff 60%)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 20px"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",minHeight:"100vh",background:`linear-gradient(145deg, ${BRAND_BG} 0%, #fff 60%)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 20px",colorScheme:"light"}}>
 
       {/* Brand */}
       <div style={{textAlign:"center",marginBottom:28}}>
@@ -306,19 +306,6 @@ function GateScreen({ onSubmit }) {
           Based on 2026 Medicare CMS rates for your state — and Medicaid where it applies.
           Takes 60 seconds to calculate.
         </p>
-      </div>
-
-      {/* Social proof pills */}
-      <div style={{display:"flex",gap:10,marginBottom:28,flexWrap:"wrap",justifyContent:"center"}}>
-        {[
-          { n:"$1,250", t:"from one code · month one · NC" },
-          { n:"$3,000/mo", t:"four clinicians · verified 2026" },
-        ].map(p => (
-          <div key={p.n} style={{background:"#fff",border:"1px solid #E2E8F0",borderRadius:999,padding:"6px 14px",display:"flex",alignItems:"center",gap:8,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
-            <span style={{fontSize:14,fontWeight:800,color:BRAND}}>{p.n}</span>
-            <span style={{fontSize:11,color:"#64748B"}}>{p.t}</span>
-          </div>
-        ))}
       </div>
 
       {/* Form card */}
@@ -395,7 +382,7 @@ function GateScreen({ onSubmit }) {
       </div>
 
       <div style={{marginTop:18,fontSize:11,color:"#94A3B8"}}>
-        Powered by IndiAide · 2026 Medicare CMS PFS + verified Medicaid data
+        Powered by IndiAide · 2026 Medicare CMS PFS + Medicaid data
       </div>
     </div>
   );
@@ -549,7 +536,7 @@ export default function ROICalculator() {
   }
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",maxWidth:680,margin:"0 auto",padding:"16px 20px",background:"#F8FAFC",minHeight:"100vh"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",maxWidth:680,margin:"0 auto",padding:"16px 20px",background:"#F8FAFC",minHeight:"100vh",colorScheme:"light"}}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{textAlign:"center",padding:"20px 0 24px"}}>
@@ -561,7 +548,7 @@ export default function ROICalculator() {
         </h1>
         <p style={{margin:"8px 0 0",fontSize:13,color:"#64748B",lineHeight:1.6,maxWidth:520,marginLeft:"auto",marginRight:"auto"}}>
           For <strong>{lead.practice}</strong> · {lead.role}
-          {" "}· Based on 2026 Medicare CMS rates{dual ? " + verified Medicaid" : ""} for {s.name}.
+          {" "}· Based on 2026 Medicare CMS rates{dual ? " + Medicaid" : ""} for {s.name}.
         </p>
         {dual && (
           <div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,background:GREEN_LIGHT,border:"1px solid #D1FAE5",borderRadius:999,padding:"4px 12px"}}>
@@ -580,7 +567,7 @@ export default function ROICalculator() {
             </label>
             <input type="number" min={0} max={999999} value={mcCount}
               onChange={e => setMcCount(Math.max(0,Math.min(999999,parseInt(e.target.value)||0)))}
-              style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${BLUE}44`,borderRadius:8,fontSize:16,fontWeight:700,color:"#0F172A",boxSizing:"border-box"}}
+              style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${BLUE}44`,borderRadius:8,fontSize:16,fontWeight:700,color:"#0F172A",boxSizing:"border-box",background:"#fff",colorScheme:"light"}}
             />
             <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>Active Medicare caseload</div>
           </div>
@@ -591,7 +578,7 @@ export default function ROICalculator() {
             </label>
             <input type="number" min={0} max={999999} value={mdCount}
               onChange={e => setMdCount(Math.max(0,Math.min(999999,parseInt(e.target.value)||0)))}
-              style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${dual?GREEN+"44":"#E2E8F0"}`,borderRadius:8,fontSize:16,fontWeight:700,color:dual?"#0F172A":"#94A3B8",boxSizing:"border-box",background:dual?"#fff":"#F8FAFC"}}
+              style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${dual?GREEN+"44":"#E2E8F0"}`,borderRadius:8,fontSize:16,fontWeight:700,color:dual?"#0F172A":"#94A3B8",boxSizing:"border-box",background:dual?"#fff":"#F8FAFC",colorScheme:"light"}}
             />
             <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>
               {dual ? "Active Medicaid caseload" : `Medicaid RTM not reimbursed in ${s.name}`}
@@ -603,7 +590,7 @@ export default function ROICalculator() {
               State of Practice
             </label>
             <select value={stateCode} onChange={e => setStateCode(e.target.value)}
-              style={{width:"100%",padding:"10px 12px",border:"1.5px solid #E2E8F0",borderRadius:8,fontSize:13,color:"#0F172A",boxSizing:"border-box",background:"#fff"}}
+              style={{width:"100%",padding:"10px 12px",border:"1.5px solid #E2E8F0",borderRadius:8,fontSize:13,color:"#0F172A",boxSizing:"border-box",background:"#fff",colorScheme:"light"}}
             >
               <optgroup label="✅ Medicare + Medicaid RTM (19 states)">
                 {DUAL_LIST.map(([c,n]) => <option key={c} value={c}>{n}</option>)}
@@ -614,7 +601,7 @@ export default function ROICalculator() {
             </select>
             <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>
               {dual
-                ? <span style={{color:GREEN,fontWeight:600}}>✅ Both Medicare &amp; Medicaid verified · Q2 2026</span>
+                ? <span style={{color:GREEN,fontWeight:600}}>✅ Both Medicare &amp; Medicaid reimburse RTM in {s.name} · Q2 2026</span>
                 : "Medicare RTM · 2026 CMS PFS rates"
               }
             </div>
@@ -626,7 +613,7 @@ export default function ROICalculator() {
             <Toggle options={ADOPTION} value={adoptionKey} onChange={setAdoptionKey} />
             <div style={{fontSize:11,color:"#94A3B8",marginTop:5}}>
               % of caseload enrolled &amp; active →{" "}
-              <strong style={{color:BRAND}}>{fmtN(C.totalActive)} active{dual ? ` (MC ${fmtN(C.mcActive)} + MD ${fmtN(C.mdActive)})` : ""}</strong>
+              <strong style={{color:BRAND}}>{fmtN(C.totalActive)} active{dual ? ` (Medicare ${fmtN(C.mcActive)} + Medicaid ${fmtN(C.mdActive)})` : ""}</strong>
             </div>
           </div>
           <div>
@@ -646,12 +633,6 @@ export default function ROICalculator() {
         <KpiCard label={dual?"Combined Annual":"Annual Revenue"}   value={fmtK(C.combAnnual)} sub="recurring" color={BRAND} inverted />
         <KpiCard label="Net Monthly"  value={fmt(C.netMonthly)} sub={`$${C.indiRate}/pt · ${C.indiLabel} tier`} color={GREEN} />
         <KpiCard label="ROI"          value={`${C.roi}%`}       sub="return on platform" color={AMBER} />
-      </div>
-
-      {/* ── Social Proof ──────────────────────────────────────────────────── */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-        <QuoteCard figure="$1,250" text="from one RTM code in their first month of billing" source="Owner, pediatric practice, NC" />
-        <QuoteCard figure="$3,000/mo" text="consistently, from four clinicians using the platform" source="IndiAide clinic, verified 2026" />
       </div>
 
       {/* ── Year 1 Setup Banner ───────────────────────────────────────────── */}
@@ -676,7 +657,7 @@ export default function ROICalculator() {
           <div style={{fontSize:12,fontWeight:700,color:SLATE,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Revenue Breakdown</div>
           <div style={{fontSize:12,color:"#94A3B8",marginTop:4}}>
             {dual
-              ? `${ADOPTION.find(a=>a.key===adoptionKey).label} adoption · MC ${fmtN(C.mcActive)} + MD ${fmtN(C.mdActive)} active patients · ${s.name} 2026`
+              ? `${ADOPTION.find(a=>a.key===adoptionKey).label} adoption · Medicare ${fmtN(C.mcActive)} + Medicaid ${fmtN(C.mdActive)} active patients · ${s.name} 2026`
               : `${ADOPTION.find(a=>a.key===adoptionKey).label} adoption · ${fmtN(C.mcActive)} active patients · ${s.name} Medicare 2026`
             }
           </div>
@@ -779,7 +760,7 @@ export default function ROICalculator() {
           <div>
             <div style={{fontSize:12,fontWeight:700,color:SLATE,textTransform:"uppercase",letterSpacing:"0.06em"}}>Clinician Time Comparison</div>
             <div style={{fontSize:12,color:"#94A3B8",marginTop:3}}>
-              {ADOPTION.find(a=>a.key===adoptionKey).label} adoption · {fmtN(C.totalActive)} active patients · {s.name}
+            {ADOPTION.find(a=>a.key===adoptionKey).label} adoption · {fmtN(C.totalActive)} active patients · {s.name}
             </div>
           </div>
           <div style={{fontSize:11,color:"#94A3B8"}}>Click a row to update ↑</div>
@@ -844,7 +825,7 @@ export default function ROICalculator() {
           {fmtK(C.combAnnual)}/year{dual ? " across both payers" : ""} — from work you're already doing.
         </div>
         <div style={{fontSize:13,opacity:0.82,lineHeight:1.65,marginBottom:20,maxWidth:500}}>
-          IndiAide tracks everything {dual ? "Medicare and Medicaid need" : "Medicare needs"} to see for RTM billing — active days, clinician time, patient communication — automatically, from the platform your patients are already using at home.
+          IndiAide tracks everything {dual ? "Medicare and Medicaid need" : "Medicare needs"} to see for RTM billing — active days, clinician time, patient communication — automatically.
         </div>
         <div style={{borderLeft:"3px solid rgba(255,255,255,0.4)",paddingLeft:16,marginBottom:24}}>
           <div style={{fontSize:14,fontStyle:"italic",opacity:0.9,lineHeight:1.5}}>
@@ -866,7 +847,7 @@ export default function ROICalculator() {
       {/* ── Disclaimer ────────────────────────────────────────────────────── */}
       <p style={{textAlign:"center",fontSize:10,color:"#94A3B8",marginTop:14,lineHeight:1.75,maxWidth:680}}>
         Medicare estimates use 2026 CMS Physician Fee Schedule NonFac rates for {s.name}.
-        {dual && ` Medicaid estimates use Q2 2026 verified ${s.name} state fee schedule rates.`}
+        {dual && ` Medicaid estimates use Q2 2026 ${s.name} state fee schedule rates.`}
         {" "}Device supply assumes 98977 (musculoskeletal, 16–30 active days), billable for approximately 50% of active patients per month.
         Clinician time assumes approximately 50% of active patients billed monthly, requiring documented management time plus at least one interactive communication.
         {dual && s.m79===null && ` ${s.name} Medicaid does not separately reimburse 98979 (10-min tier); 98980 and 98981 remain billable.`}
