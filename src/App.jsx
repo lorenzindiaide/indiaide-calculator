@@ -525,17 +525,7 @@ export default function ROICalculator() {
   const billKey = `clinician_${clinicianKey}`;
   const card    = { background:"#fff", borderRadius:16, border:"1px solid #E2E8F0", padding:24, marginBottom:16 };
 
-  // Gate check — all hooks above, conditional render below (rules of hooks compliant)
-  if (!lead) {
-    return (
-      <GateScreen onSubmit={data => {
-        setLead(data);
-        setStateCode(data.state);
-      }} />
-    );
-  }
-
-  // Auto-resize iframe height for embedding
+  // Auto-resize iframe height for embedding — must be before any conditional return
   useEffect(() => {
     const sendHeight = () => {
       const height = document.documentElement.scrollHeight;
@@ -546,6 +536,16 @@ export default function ROICalculator() {
     observer.observe(document.body);
     return () => observer.disconnect();
   }, [lead, adoptionKey, clinicianKey, stateCode, expandedCode]);
+
+  // Gate check — all hooks above, conditional render below (rules of hooks compliant)
+  if (!lead) {
+    return (
+      <GateScreen onSubmit={data => {
+        setLead(data);
+        setStateCode(data.state);
+      }} />
+    );
+  }
 
   return (
     <div style={{fontFamily:"'Inter',sans-serif",maxWidth:860,margin:"0 auto",padding:"16px 24px",background:"#F8FAFC",colorScheme:"light"}}>
