@@ -548,7 +548,8 @@ export default function ROICalculator() {
   }
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",maxWidth:860,margin:"0 auto",padding:"16px 24px",background:"#fff",colorScheme:"light"}}>
+    <div style={{width:"100%",display:"flex",justifyContent:"center",background:"#fff",colorScheme:"light"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",width:"100%",maxWidth:860,padding:"16px 24px",boxSizing:"border-box"}}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{textAlign:"center",padding:"20px 0 24px"}}>
@@ -869,6 +870,7 @@ export default function ROICalculator() {
         Actual reimbursement varies by payer mix, patient eligibility, and clinical documentation. For informational purposes only.
       </p>
 
+    </div>
     </div>
   );
 }
