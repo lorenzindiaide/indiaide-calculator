@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 // ─── Lead capture config ──────────────────────────────────────────────────────
 // Replace LEAD_WEBHOOK_URL with your Zapier / Make.com / HubSpot webhook endpoint.
@@ -292,7 +292,7 @@ function GateScreen({ onSubmit }) {
   );
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",minHeight:"100vh",background:`linear-gradient(145deg, ${BRAND_BG} 0%, #fff 60%)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 20px",colorScheme:"light"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:`linear-gradient(145deg, ${BRAND_BG} 0%, #fff 60%)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 20px",colorScheme:"light"}}>
 
       {/* Brand */}
       <div style={{textAlign:"center",marginBottom:28}}>
@@ -535,8 +535,20 @@ export default function ROICalculator() {
     );
   }
 
+  // Auto-resize iframe height for embedding
+  useEffect(() => {
+    const sendHeight = () => {
+      const height = document.documentElement.scrollHeight;
+      window.parent.postMessage({ type: "indiaide-resize", height }, "*");
+    };
+    sendHeight();
+    const observer = new ResizeObserver(sendHeight);
+    observer.observe(document.body);
+    return () => observer.disconnect();
+  }, [lead, adoptionKey, clinicianKey, stateCode, expandedCode]);
+
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",maxWidth:680,margin:"0 auto",padding:"16px 20px",background:"#F8FAFC",minHeight:"100vh",colorScheme:"light"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",maxWidth:860,margin:"0 auto",padding:"16px 24px",background:"#F8FAFC",colorScheme:"light"}}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{textAlign:"center",padding:"20px 0 24px"}}>
@@ -834,8 +846,8 @@ export default function ROICalculator() {
           <div style={{fontSize:11,opacity:0.65,marginTop:6}}>— Clinician-owner, adult practice, FL</div>
         </div>
         <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
-          <button onClick={() => window.open(BOOKING_URL,"_blank")} style={{background:"#fff",color:BRAND,border:"none",borderRadius:10,padding:"12px 24px",fontSize:14,fontWeight:700,cursor:"pointer"}}>Book a 15-min call →</button>
-          <button onClick={() => window.open("https://indiaide.com","_blank")} style={{background:"transparent",color:"#fff",border:"2px solid rgba(255,255,255,0.32)",borderRadius:10,padding:"12px 24px",fontSize:14,fontWeight:500,cursor:"pointer"}}>See how it works</button>
+          <button onClick={() => window.open(BOOKING_URL,"_blank")} style={{background:"#fff",color:BRAND,border:"none",borderRadius:10,padding:"12px 24px",fontSize:14,fontWeight:700,cursor:"pointer"}}>Book a conversation →</button>
+          <button onClick={() => window.open("https://indiaide.com","_blank")} style={{background:"transparent",color:"#fff",border:"2px solid rgba(255,255,255,0.32)",borderRadius:10,padding:"12px 24px",fontSize:14,fontWeight:500,cursor:"pointer"}}>Learn more</button>
         </div>
         <div style={{display:"flex",gap:20,flexWrap:"wrap",borderTop:"1px solid rgba(255,255,255,0.15)",paddingTop:16}}>
           {["Software as a Medical Device (SaMD)","Works on any device patients already own","RTM compliance tracked automatically"].map(b => (
@@ -854,7 +866,7 @@ export default function ROICalculator() {
         {" "}Adoption rate reflects estimated proportion of caseload actively enrolled and using IndiAide.
         Setup code 98975 billed once per episode of care.
         IndiAide qualifies as Software as a Medical Device (SaMD) — no physical device or DME required.
-        Actual reimbursement varies by payer mix, patient eligibility, and clinical documentation. For planning purposes only.
+        Actual reimbursement varies by payer mix, patient eligibility, and clinical documentation. For informational purposes only.
       </p>
 
     </div>
