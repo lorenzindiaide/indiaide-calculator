@@ -399,13 +399,13 @@ function PayerCol({ label, color, bg, totalCount, activePts, devPts, devRate, de
       </div>
       {/* Device supply */}
       <div style={{marginBottom:10}}>
-        <div style={{fontSize:11,fontWeight:600,color:"#334155",marginBottom:2}}>Device Supply</div>
+        <div style={{fontSize:11,fontWeight:600,color:"#334155",marginBottom:2,textAlign:"center"}}>Device Supply</div>
         <div style={{fontSize:11,color:"#94A3B8",marginBottom:3}}>{fmtN(devPts)} pts × {fmt(devRate)} · 50% of active</div>
         <div style={{fontSize:15,fontWeight:800,color}}>{fmt(devRev)}</div>
       </div>
       {/* Clinician time */}
       <div style={{marginBottom:12,paddingBottom:12,borderBottom:"1px dashed #E2E8F0"}}>
-        <div style={{fontSize:11,fontWeight:600,color:"#334155",marginBottom:2,display:"flex",alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{fontSize:11,fontWeight:600,color:"#334155",marginBottom:2,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
           Clinician Time
           <CodeBadge code={codeStr} color={color} bg={bg} />
         </div>
@@ -548,8 +548,8 @@ export default function ROICalculator() {
   }
 
   return (
-    <div style={{width:"100%",display:"flex",justifyContent:"center",background:"#fff",colorScheme:"light"}}>
-    <div style={{fontFamily:"'Inter',sans-serif",width:"100%",maxWidth:860,padding:"16px 24px",boxSizing:"border-box"}}>
+    <div style={{width:"100%",background:"#fff",colorScheme:"light"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",width:"100%",maxWidth:860,margin:"0 auto",padding:"16px 24px",boxSizing:"border-box"}}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{textAlign:"center",padding:"20px 0 24px"}}>
