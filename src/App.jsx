@@ -292,7 +292,7 @@ function GateScreen({ onSubmit }) {
   );
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:`linear-gradient(145deg, ${BRAND_BG} 0%, #fff 60%)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 20px",colorScheme:"light"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#fff",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 20px",colorScheme:"light"}}>
 
       {/* Brand */}
       <div style={{textAlign:"center",marginBottom:28}}>
@@ -548,7 +548,7 @@ export default function ROICalculator() {
   }
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",maxWidth:860,margin:"0 auto",padding:"16px 24px",background:"#F8FAFC",colorScheme:"light"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",maxWidth:860,margin:"0 auto",padding:"16px 24px",background:"#fff",colorScheme:"light"}}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{textAlign:"center",padding:"20px 0 24px"}}>
@@ -829,27 +829,27 @@ export default function ROICalculator() {
       </div>
 
       {/* ── CTA ───────────────────────────────────────────────────────────── */}
-      <div style={{background:BRAND,borderRadius:18,padding:"32px 28px",color:"#fff",boxShadow:`0 8px 32px ${BRAND}33`}}>
-        <div style={{fontSize:13,opacity:0.8,lineHeight:1.6,marginBottom:18,maxWidth:520}}>
+      <div style={{background:BRAND,borderRadius:18,padding:"32px 28px",color:"#fff",boxShadow:`0 8px 32px ${BRAND}33`,textAlign:"center"}}>
+        <div style={{fontSize:13,opacity:0.8,lineHeight:1.6,marginBottom:18,maxWidth:520,margin:"0 auto 18px"}}>
           You spend time between sessions on your patients — reviewing their progress, adjusting their home program, checking in. That work doesn't fall through the cracks. But for most clinics, it also doesn't get reimbursed.
         </div>
         <div style={{fontSize:24,fontWeight:800,lineHeight:1.2,marginBottom:10}}>
           {fmtK(C.combAnnual)}/year{dual ? " across both payers" : ""} — from work you're already doing.
         </div>
-        <div style={{fontSize:13,opacity:0.82,lineHeight:1.65,marginBottom:20,maxWidth:500}}>
+        <div style={{fontSize:13,opacity:0.82,lineHeight:1.65,marginBottom:20,maxWidth:500,margin:"0 auto 20px"}}>
           IndiAide tracks everything {dual ? "Medicare and Medicaid need" : "Medicare needs"} to see for RTM billing — active days, clinician time, patient communication — automatically.
         </div>
-        <div style={{borderLeft:"3px solid rgba(255,255,255,0.4)",paddingLeft:16,marginBottom:24}}>
+        <div style={{borderLeft:"3px solid rgba(255,255,255,0.4)",paddingLeft:16,marginBottom:24,textAlign:"left",maxWidth:500,margin:"0 auto 24px"}}>
           <div style={{fontSize:14,fontStyle:"italic",opacity:0.9,lineHeight:1.5}}>
             "This is the missing piece. This is something we've needed for so long."
           </div>
           <div style={{fontSize:11,opacity:0.65,marginTop:6}}>— Clinician-owner, adult practice, FL</div>
         </div>
-        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20,justifyContent:"center"}}>
           <button onClick={() => window.open(BOOKING_URL,"_blank")} style={{background:"#fff",color:BRAND,border:"none",borderRadius:10,padding:"12px 24px",fontSize:14,fontWeight:700,cursor:"pointer"}}>Book a conversation →</button>
           <button onClick={() => window.open("https://indiaide.com","_blank")} style={{background:"transparent",color:"#fff",border:"2px solid rgba(255,255,255,0.32)",borderRadius:10,padding:"12px 24px",fontSize:14,fontWeight:500,cursor:"pointer"}}>Learn more</button>
         </div>
-        <div style={{display:"flex",gap:20,flexWrap:"wrap",borderTop:"1px solid rgba(255,255,255,0.15)",paddingTop:16}}>
+        <div style={{display:"flex",gap:20,flexWrap:"wrap",borderTop:"1px solid rgba(255,255,255,0.15)",paddingTop:16,justifyContent:"center"}}>
           {["Software as a Medical Device (SaMD)","Works on any device patients already own","RTM compliance tracked automatically"].map(b => (
             <div key={b} style={{fontSize:11,opacity:0.72,display:"flex",alignItems:"center",gap:4}}><span>✓</span>{b}</div>
           ))}
