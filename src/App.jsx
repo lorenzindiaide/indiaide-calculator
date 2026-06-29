@@ -292,7 +292,7 @@ function GateScreen({ onSubmit }) {
   );
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#fff",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 20px",colorScheme:"light",borderRadius:24,overflow:"hidden"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#fff",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 20px",colorScheme:"light"}}>
 
       {/* Brand */}
       <div style={{textAlign:"center",marginBottom:28}}>
@@ -549,7 +549,7 @@ export default function ROICalculator() {
 
   return (
     <div style={{width:"100%",background:"#fff",colorScheme:"light"}}>
-    <div style={{fontFamily:"'Inter',sans-serif",width:"100%",maxWidth:860,margin:"0 auto",padding:"16px 24px",boxSizing:"border-box",borderRadius:24,overflow:"hidden"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",width:"100%",maxWidth:860,margin:"0 auto",padding:"16px 24px",boxSizing:"border-box"}}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{textAlign:"center",padding:"20px 0 24px"}}>
