@@ -296,8 +296,11 @@ function GateScreen({ onSubmit }) {
 
       {/* Brand */}
       <div style={{textAlign:"center",marginBottom:28}}>
-        <div style={{fontSize:10,fontWeight:800,color:BRAND,textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10}}>
-          IndiAide · RTM Revenue Calculator
+        <a href="https://calendly.com/indiaide-scheduling/30min" target="_blank" rel="noopener noreferrer">
+          <img src="/indiaide-animation.svg" alt="IndiAide" style={{width:320,marginBottom:12,cursor:"pointer"}} />
+        </a>
+        <div style={{fontSize:22,fontWeight:800,color:BRAND,textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10}}>
+          RTM Revenue Calculator
         </div>
         <h1 style={{margin:0,fontSize:26,fontWeight:800,color:"#0F172A",lineHeight:1.25,maxWidth:400}}>
           See your personalized RTM revenue estimate
@@ -553,8 +556,11 @@ export default function ROICalculator() {
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div style={{textAlign:"center",padding:"20px 0 24px"}}>
-        <div style={{fontSize:10,fontWeight:800,color:BRAND,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8}}>
-          IndiAide · RTM Revenue Calculator
+        <a href="https://calendly.com/indiaide-scheduling/30min" target="_blank" rel="noopener noreferrer">
+          <img src="/indiaide-animation.svg" alt="IndiAide" style={{width:320,marginBottom:12,cursor:"pointer"}} />
+        </a>
+        <div style={{fontSize:22,fontWeight:800,color:BRAND,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8}}>
+          RTM Revenue Calculator
         </div>
         <h1 style={{margin:0,fontSize:26,fontWeight:800,color:"#0F172A",lineHeight:1.25}}>
           {lead.name.split(" ")[0]}, here's your RTM revenue estimate
