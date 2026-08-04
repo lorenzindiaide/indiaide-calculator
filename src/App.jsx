@@ -392,7 +392,7 @@ function GateScreen({ onSubmit }) {
 }
 
 // Single payer revenue column (used in the two-column dual layout)
-function PayerCol({ label, color, bg, totalCount, activePts, devPts, devRate, devRev, clinPts, clinRate, clinRev, clinUncovered, clinNote, codeStr, monthly, annual, setup }) {
+function PayerCol({ label, color, bg, totalCount, activePts, devPts, devRate, devRev, devUncovered, devNote, clinPts, clinRate, clinRev, clinUncovered, clinNote, codeStr, monthly, annual, setup }) {
   return (
     <div style={{flex:1,minWidth:0}}>
       <div style={{display:"inline-flex",alignItems:"center",gap:6,background:bg,borderRadius:6,padding:"3px 10px",marginBottom:12}}>
@@ -403,8 +403,13 @@ function PayerCol({ label, color, bg, totalCount, activePts, devPts, devRate, de
       {/* Device supply */}
       <div style={{marginBottom:10}}>
         <div style={{fontSize:11,fontWeight:600,color:"#334155",marginBottom:2,textAlign:"center"}}>Device Supply</div>
-        <div style={{fontSize:11,color:"#94A3B8",marginBottom:3}}>{fmtN(devPts)} pts × {fmt(devRate)} · 50% of active</div>
-        <div style={{fontSize:15,fontWeight:800,color}}>{fmt(devRev)}</div>
+        {devUncovered
+          ? <div style={{fontSize:11,color:"#94A3B8",fontStyle:"italic",lineHeight:1.4}}>{devNote}</div>
+          : <>
+              <div style={{fontSize:11,color:"#94A3B8",marginBottom:3}}>{fmtN(devPts)} pts × {fmt(devRate)} · 50% of active</div>
+              <div style={{fontSize:15,fontWeight:800,color}}>{fmt(devRev)}</div>
+            </>
+        }
       </div>
       {/* Clinician time */}
       <div style={{marginBottom:12,paddingBottom:12,borderBottom:"1px dashed #E2E8F0"}}>
@@ -484,14 +489,24 @@ export default function ROICalculator() {
     const mdActive  = dual ? Math.round(mdCount * adoption) : 0;
     const mdDevPts  = Math.round(mdActive * DEVICE_BILL_PCT);
     const mdClinPts = Math.round(mdActive * CLINICIAN_BILL_PCT);
+    const mdDevUncov  = dual && s.m77 === null;
     const mdDevRev  = dual ? mdDevPts * s.m77 : 0;
-    const mdClinUncov = dual && clinicianKey==="low" && s.m79===null;
+    const mdClinUncov = dual && (
+      clinicianKey==="low" ? s.m79===null :
+      clinicianKey==="mid" ? s.m80===null :
+      (s.m80===null && s.m81===null)
+    );
     const mdClinRaw   = dual ? (clinicianKey==="low" ? s.m79 : clinicianKey==="mid" ? s.m80 : s.m80+s.m81) : null;
     const mdClinR   = (!dual || mdClinUncov || mdClinRaw===null) ? 0 : mdClinRaw;
     const mdClinRev = mdClinUncov ? 0 : mdClinPts * mdClinR;
     const mdMonthly = mdDevRev + mdClinRev;
     const mdAnnual  = mdMonthly * 12;
     const mdSetup   = dual ? mdCount * s.m75 : 0;
+
+    // Accurate per-tier note text for whichever code(s) are actually uncovered
+    const mdClinUncovCodes = clinicianKey==="low" ? "98979" : clinicianKey==="mid" ? "98980" : "98980 and 98981";
+    const mdClinNote = `${mdClinUncovCodes} not reimbursed under ${s.name} Medicaid.`;
+    const mdDevNote  = `98977 not reimbursed under ${s.name} Medicaid.`;
 
     // Combined
     const totalActive    = mcActive + mdActive;
@@ -509,7 +524,7 @@ export default function ROICalculator() {
     return {
       mcActive, mcDevPts, mcClinPts, mcClinR, mcDevRev, mcClinRev, mcMonthly, mcAnnual, mcSetup,
       mdActive, mdDevPts, mdClinPts, mdClinR, mdClinRev, mdDevRev, mdMonthly, mdAnnual, mdSetup,
-      mdClinUncov,
+      mdClinUncov, mdDevUncov, mdClinNote, mdDevNote,
       totalActive, indiRate, indiLabel, indiMonthly,
       combMonthly, combAnnual, combSetup, year1Total,
       netMonthly, netAnnual, roi,
@@ -527,7 +542,11 @@ export default function ROICalculator() {
     const mdD  = dual ? Math.round(mdA * DEVICE_BILL_PCT) * s.m77 : 0;
     return CLINICIAN.map(sc => {
       const mcCR  = sc.key==="low" ? s.r79 : sc.key==="mid" ? s.r80 : s.r80+s.r81;
-      const mdCUncov = dual && sc.key==="low" && s.m79===null;
+      const mdCUncov = dual && (
+        sc.key==="low" ? s.m79===null :
+        sc.key==="mid" ? s.m80===null :
+        (s.m80===null && s.m81===null)
+      );
       const mdCRaw   = dual ? (sc.key==="low" ? s.m79 : sc.key==="mid" ? s.m80 : s.m80+s.m81) : 0;
       const mdCR     = (!dual || mdCUncov || mdCRaw===null) ? 0 : mdCRaw;
       const mcMr = mcD + Math.round(mcA * CLINICIAN_BILL_PCT) * mcCR;
@@ -716,9 +735,10 @@ export default function ROICalculator() {
                 label="Medicaid" color={GREEN} bg={GREEN_LIGHT}
                 totalCount={mdCount} activePts={C.mdActive}
                 devPts={C.mdDevPts} devRate={s.m77} devRev={C.mdDevRev}
+                devUncovered={C.mdDevUncov} devNote={C.mdDevNote}
                 clinPts={C.mdClinPts} clinRate={C.mdClinR} clinRev={C.mdClinRev}
                 clinUncovered={C.mdClinUncov}
-                clinNote={`98979 not covered under ${s.name} Medicaid — switch to 20 min to bill 98980`}
+                clinNote={C.mdClinNote}
                 codeStr={clin.codeStr}
                 monthly={C.mdMonthly} annual={C.mdAnnual} setup={C.mdSetup}
               />
@@ -833,7 +853,7 @@ export default function ROICalculator() {
                     </td>
                     <td style={{padding:"10px 8px",fontFamily:"monospace",fontSize:11,color:on?BRAND:"#94A3B8"}}>
                       {row.codeStr}
-                      {row.mdCUncov && <span style={{marginLeft:4,fontSize:9,color:"#94A3B8",fontFamily:"sans-serif",fontStyle:"italic"}}>MD: 98979 N/C</span>}
+                      {row.mdCUncov && <span style={{marginLeft:4,fontSize:9,color:"#94A3B8",fontFamily:"sans-serif",fontStyle:"italic"}}>MD: {row.key==="low"?"98979":row.key==="mid"?"98980":"98980+81"} N/C</span>}
                     </td>
                     {dual && <td style={{padding:"10px 8px",textAlign:"right",color:BLUE,fontWeight:600}}>{fmt(row.mcMr)}</td>}
                     {dual && <td style={{padding:"10px 8px",textAlign:"right",color:GREEN,fontWeight:600}}>{fmt(row.mdMr)}</td>}
