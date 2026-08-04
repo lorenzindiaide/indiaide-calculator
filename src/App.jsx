@@ -19,55 +19,55 @@ const BLUE_LIGHT  = "#E0F2FE";
 const SLATE       = "#475569";
 
 // ─── All 51 states — Medicare rates (2026 CMS PFS NonFac) ─────────────────────
-// Dual-coverage states also carry m* Medicaid rates (Q2 2026 verified fee schedules)
+// Dual-coverage states also carry m* Medicaid rates (Q3 2026 verified fee schedules)
 // m79=null → 98979 not separately covered under that state's Medicaid
 const ALL_STATES = {
   "AK":{ name:"Alaska",             r75:22.78, r77:54.61, r79:32.43, r80:66.12, r81:52.46 },
   "AL":{ name:"Alabama",            r75:18.79, r77:44.90, r79:24.28, r80:49.62, r81:38.48 },
   "AR":{ name:"Arkansas",           r75:18.42, r77:44.07, r79:24.01, r80:49.06, r81:38.11 },
-  "AZ":{ name:"Arizona",            r75:19.16, r77:41.91, r79:24.01, r80:49.23, r81:38.50,  m75:20.57, m77:45.33, m79:27.20, m80:53.00, m81:41.49 },
+  "AZ":{ name:"Arizona",             r75:20.96, r77:49.81, r79:25.85, r80:52.96, r81:40.65,  m75:20.57, m77:45.33, m79:27.20, m80:53.00, m81:41.49 },
   "CA":{ name:"California",         r75:23.42, r77:56.19, r79:27.91, r80:57.11, r81:43.22 },
-  "CO":{ name:"Colorado",           r75:20.63, r77:45.23, r79:25.17, r80:51.60, r81:40.03,  m75:17.23, m77:37.45, m79:55.23, m80:43.86, m81:35.40 },
+  "CO":{ name:"Colorado",           r75:22.91, r77:54.63, r79:27.44, r80:56.21, r81:42.72,  m75:16.89, m77:48.93, m79:0.66,  m80:42.98, m81:34.69 },
   "CT":{ name:"Connecticut",        r75:23.47, r77:55.44, r79:27.87, r80:57.23, r81:43.58 },
-  "DC":{ name:"Washington D.C.",    r75:25.53, r77:60.57, r79:29.78, r80:61.11, r81:46.20 },
+  "DC":{ name:"Washington D.C.",    r75:25.53, r77:60.57, r79:29.78, r80:61.11, r81:46.20,  m75:null,  m77:null,  m79:23.82, m80:null,  m81:null  },
   "DE":{ name:"Delaware",           r75:21.39, r77:50.79, r79:26.22, r80:53.72, r81:41.18,  m75:20.96, m77:38.78, m79:null,  m80:52.65, m81:40.36 },
   "FL":{ name:"Florida",            r75:21.12, r77:49.36, r79:25.86, r80:53.19, r81:41.04 },
-  "GA":{ name:"Georgia",            r75:17.58, r77:38.07, r79:22.89, r80:46.93, r81:37.18,  m75:15.84, m77:45.67, m79:22.63, m80:41.09, m81:33.39 },
-  "HI":{ name:"Hawaii",             r75:17.58, r77:38.07, r79:22.89, r80:46.93, r81:37.18,  m75:22.56, m77:54.12, m79:null,  m80:30.95, m81:30.61 },
-  "IA":{ name:"Iowa",               r75:19.52, r77:46.89, r79:24.85, r80:50.75, r81:39.11,  m75:19.55, m77:57.13, m79:null,  m80:53.12, m81:43.29 },
+  "GA":{ name:"Georgia",             r75:19.57, r77:45.98, r79:24.76, r80:50.80, r81:39.45,  m75:15.84, m77:45.67, m79:22.63, m80:41.09, m81:33.39 },
+  "HI":{ name:"Hawaii",              r75:24.31, r77:58.30, r79:28.40, r80:58.13, r81:43.74,  m75:22.29, m77:49.24, m79:11.31, m80:30.07, m81:29.38 },
+  "IA":{ name:"Iowa",               r75:19.52, r77:46.89, r79:24.85, r80:50.75, r81:39.11,  m75:20.05, m77:58.57, m79:null,  m80:54.47, m81:44.38 },
   "ID":{ name:"Idaho",              r75:19.68, r77:47.17, r79:24.95, r80:50.99, r81:39.29 },
   "IL":{ name:"Illinois",           r75:20.70, r77:47.69, r79:25.47, r80:52.53, r81:40.83 },
   "IN":{ name:"Indiana",            r75:19.83, r77:47.54, r79:25.07, r80:51.23, r81:39.44,  m75:17.91, m77:39.52, m79:null,  m80:47.23, m81:37.06 },
   "KS":{ name:"Kansas",             r75:19.36, r77:46.37, r79:24.71, r80:50.50, r81:39.00 },
-  "KY":{ name:"Kentucky",           r75:19.32, r77:45.74, r79:24.62, r80:50.43, r81:39.11,  m75:14.41, m77:31.66, m79:10.00, m80:22.08, m81:22.08 },
+  "KY":{ name:"Kentucky",           r75:19.32, r77:45.74, r79:24.62, r80:50.43, r81:39.11,  m75:14.41, m77:31.66, m79:21.87, m80:34.74, m81:34.74 },
   "LA":{ name:"Louisiana",          r75:20.56, r77:48.47, r79:25.51, r80:52.33, r81:40.37 },
-  "MA":{ name:"Massachusetts",      r75:25.72, r77:61.31, r79:29.82, r80:61.13, r81:46.03 },
+  "MA":{ name:"Massachusetts",      r75:25.72, r77:61.31, r79:29.82, r80:61.13, r81:46.03,  m75:15.13, m77:39.57, m79:null,  m80:37.41, m81:29.66 },
   "MD":{ name:"Maryland",           r75:21.91, r77:52.02, r79:26.65, r80:54.62, r81:41.78 },
-  "ME":{ name:"Maine",              r75:17.84, r77:39.19, r79:23.01, r80:47.18, r81:37.11,  m75:14.31, m77:34.19, m79:18.10, m80:37.03, m81:28.55 },
-  "MI":{ name:"Michigan",           r75:18.14, r77:39.28, r79:23.31, r80:47.80, r81:37.75,  m75:13.85, m77:32.80, m79:16.83, m80:34.51, m81:26.41 },
-  "MN":{ name:"Minnesota",          r75:19.76, r77:43.86, r79:24.36, r80:49.95, r81:38.69,  m75:16.72, m77:40.39, m79:20.32, m80:41.68, m81:31.64 },
+  "ME":{ name:"Maine",              r75:19.77, r77:47.22, r79:25.00, r80:51.14, r81:39.44,  m75:14.31, m77:34.19, m79:18.10, m80:37.03, m81:28.55 },
+  "MI":{ name:"Michigan",           r75:19.97, r77:47.03, r79:25.06, r80:51.42, r81:39.80,  m75:13.85, m77:32.80, m79:16.83, m80:34.51, m81:26.41 },
+  "MN":{ name:"Minnesota",          r75:21.85, r77:52.68, r79:26.61, r80:54.34, r81:41.29,  m75:16.72, m77:40.39, m79:20.32, m80:41.68, m81:31.64 },
   "MO":{ name:"Missouri",           r75:18.79, r77:44.38, r79:24.21, r80:49.61, r81:38.63 },
-  "MS":{ name:"Mississippi",        r75:18.61, r77:44.25, r79:24.12, r80:49.34, r81:38.37,  m75:15.08, m77:28.42, m79:21.71, m80:25.15, m81:24.61 },
+  "MS":{ name:"Mississippi",        r75:18.61, r77:44.25, r79:24.12, r80:49.34, r81:38.37,  m75:16.75, m77:31.02, m79:21.71, m80:44.41, m81:34.53 },
   "MT":{ name:"Montana",            r75:21.71, r77:51.44, r79:26.39, r80:54.11, r81:41.42,  m75:27.70, m77:60.40, m79:35.87, m80:70.34, m81:54.90 },
   "NC":{ name:"North Carolina",     r75:20.06, r77:47.89, r79:25.21, r80:51.58, r81:39.71,  m75:15.40, m77:44.43, m79:null,  m80:41.25, m81:33.73 },
   "ND":{ name:"North Dakota",       r75:21.31, r77:51.24, r79:26.19, r80:53.51, r81:40.82 },
-  "NE":{ name:"Nebraska",           r75:19.67, r77:47.29, r79:24.97, r80:50.99, r81:39.25 },
+  "NE":{ name:"Nebraska",           r75:19.67, r77:47.29, r79:24.97, r80:50.99, r81:39.25,  m75:42.76, m77:null,  m79:null,  m80:null,  m81:null  },
   "NH":{ name:"New Hampshire",      r75:22.49, r77:53.49, r79:26.99, r80:55.31, r81:42.11,  m75:19.03, m77:53.30, m79:null,  m80:48.54, m81:39.30 },
-  "NJ":{ name:"New Jersey",         r75:25.12, r77:59.64, r79:29.57, r80:60.67, r81:45.98,  m75:10.36, m77:22.60, m79:5.64,  m80:25.71, m81:19.94 },
+  "NJ":{ name:"New Jersey",         r75:23.71, r77:56.17, r79:28.28, r80:58.02, r81:44.17,  m75:10.36, m77:22.60, m79:5.64,  m80:25.71, m81:19.94 },
   "NM":{ name:"New Mexico",         r75:20.10, r77:47.26, r79:25.15, r80:51.62, r81:39.96,  m75:27.02, m77:63.46, m79:null,  m80:71.11, m81:56.79 },
   "NV":{ name:"Nevada",             r75:21.62, r77:51.43, r79:26.35, r80:53.97, r81:41.27 },
   "NY":{ name:"New York",           r75:25.51, r77:59.91, r79:29.79, r80:61.27, r81:46.55 },
-  "OH":{ name:"Ohio",               r75:19.89, r77:46.99, r79:25.02, r80:51.30, r81:39.68 },
+  "OH":{ name:"Ohio",               r75:19.89, r77:46.99, r79:25.02, r80:51.30, r81:39.68,  m75:13.84, m77:39.56, m79:null,  m80:37.22, m81:30.62 },
   "OK":{ name:"Oklahoma",           r75:19.31, r77:45.89, r79:24.63, r80:50.42, r81:39.05 },
-  "OR":{ name:"Oregon",             r75:23.88, r77:57.02, r79:28.21, r80:57.78, r81:43.71 },
+  "OR":{ name:"Oregon",             r75:23.88, r77:57.02, r79:28.21, r80:57.78, r81:43.71,  m75:null,  m77:null,  m79:21.35, m80:null,  m81:null  },
   "PA":{ name:"Pennsylvania",       r75:22.70, r77:53.60, r79:27.28, r80:56.00, r81:42.80 },
-  "RI":{ name:"Rhode Island",       r75:22.33, r77:53.09, r79:27.07, r80:55.46, r81:42.36,  m75:33.23, m77:33.23, m79:7.02,  m80:29.93, m81:24.35 },
+  "RI":{ name:"Rhode Island",       r75:22.33, r77:53.09, r79:27.07, r80:55.46, r81:42.36,  m75:11.56, m77:33.23, m79:7.02,  m80:29.93, m81:24.36 },
   "SC":{ name:"South Carolina",     r75:20.01, r77:47.50, r79:25.14, r80:51.50, r81:39.74 },
   "SD":{ name:"South Dakota",       r75:21.27, r77:51.22, r79:26.16, r80:53.44, r81:40.75 },
   "TN":{ name:"Tennessee",          r75:19.49, r77:46.63, r79:24.80, r80:50.70, r81:39.13 },
   "TX":{ name:"Texas",              r75:22.85, r77:54.36, r79:27.28, r80:55.92, r81:42.51 },
-  "UT":{ name:"Utah",               r75:20.38, r77:48.34, r79:25.41, r80:52.06, r81:40.11 },
-  "VA":{ name:"Virginia",           r75:19.27, r77:42.26, r79:24.09, r80:49.40, r81:38.57,  m75:17.35, m77:37.82, m79:null,  m80:44.08, m81:34.41 },
+  "UT":{ name:"Utah",               r75:20.38, r77:48.34, r79:25.41, r80:52.06, r81:40.11,  m75:null,  m77:null,  m79:null,  m80:40.87, m81:31.49 },
+  "VA":{ name:"Virginia",           r75:21.16, r77:50.47, r79:26.02, r80:53.26, r81:40.78,  m75:18.81, m77:44.56, m79:null,  m80:46.88, m81:35.88 },
   "VT":{ name:"Vermont",            r75:21.17, r77:50.76, r79:26.06, r80:53.29, r81:40.72 },
   "WA":{ name:"Washington",         r75:26.37, r77:62.98, r79:30.41, r80:62.32, r81:46.80 },
   "WI":{ name:"Wisconsin",          r75:20.36, r77:49.06, r79:25.50, r80:52.06, r81:39.88 },
@@ -450,6 +450,22 @@ export default function ROICalculator() {
   const s    = ALL_STATES[stateCode] || ALL_STATES["TX"];
   const dual = isDualState(s);
 
+  // Builds an accurate Medicaid coverage footnote for ANY partial-coverage pattern
+  // (not just the 98979-only case) — covers states like DC/OR (only 98979 billable),
+  // NE (only 98975 billable), UT (only 98980/98981 billable), etc.
+  const mdCoverageNote = useMemo(() => {
+    if (!dual) return null;
+    const codeLabels = { r75:"98975", r77:"98977", r79:"98979", r80:"98980", r81:"98981" };
+    const uncovered = Object.entries(codeLabels).filter(([k]) => s[`m${k.slice(1)}`] === null).map(([,v]) => v);
+    if (uncovered.length === 0) return null;
+    const covered = Object.entries(codeLabels).filter(([k]) => s[`m${k.slice(1)}`] !== null).map(([,v]) => v);
+    const uncoveredStr = uncovered.join(", ");
+    const coveredStr = covered.length
+      ? ` ${covered.join(", ")} ${covered.length === 1 ? "remains" : "remain"} billable.`
+      : " No RTM codes are separately reimbursed by Medicaid in this state.";
+    return ` ${s.name} Medicaid does not separately reimburse ${uncoveredStr}.${coveredStr}`;
+  }, [dual, s]);
+
   const C = useMemo(() => {
     const adoption = ADOPTION.find(a => a.key === adoptionKey).pct;
 
@@ -611,7 +627,7 @@ export default function ROICalculator() {
             <select value={stateCode} onChange={e => setStateCode(e.target.value)}
               style={{width:"100%",padding:"10px 12px",border:"1.5px solid #E2E8F0",borderRadius:8,fontSize:13,color:"#0F172A",boxSizing:"border-box",background:"#fff",colorScheme:"light"}}
             >
-              <optgroup label="✅ Medicare + Medicaid RTM (19 states)">
+              <optgroup label={`✅ Medicare + Medicaid RTM (${DUAL_LIST.length} states)`}>
                 {DUAL_LIST.map(([c,n]) => <option key={c} value={c}>{n}</option>)}
               </optgroup>
               <optgroup label="Medicare RTM Only">
@@ -620,7 +636,7 @@ export default function ROICalculator() {
             </select>
             <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>
               {dual
-                ? <span style={{color:GREEN,fontWeight:600}}>✅ Both Medicare &amp; Medicaid reimburse RTM in {s.name} · Q2 2026</span>
+                ? <span style={{color:GREEN,fontWeight:600}}>✅ Both Medicare &amp; Medicaid reimburse RTM in {s.name} · Q3 2026</span>
                 : "Medicare RTM · 2026 CMS PFS rates"
               }
             </div>
@@ -751,7 +767,7 @@ export default function ROICalculator() {
             {/* Medicare-only notice */}
             <div style={{marginTop:12,padding:"10px 14px",background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:8,fontSize:12,color:"#64748B"}}>
               💡 <strong>{s.name}</strong> Medicaid does not currently reimburse RTM codes.
-              Switch to one of the <strong style={{color:GREEN}}>19 ✅ states</strong> in the dropdown to see Medicaid revenue alongside Medicare.
+              Switch to one of the <strong style={{color:GREEN}}>{DUAL_LIST.length} ✅ states</strong> in the dropdown to see Medicaid revenue alongside Medicare.
             </div>
           </>
         )}
@@ -866,10 +882,10 @@ export default function ROICalculator() {
       {/* ── Disclaimer ────────────────────────────────────────────────────── */}
       <p style={{textAlign:"center",fontSize:10,color:"#94A3B8",marginTop:14,lineHeight:1.75,maxWidth:680}}>
         Medicare estimates use 2026 CMS Physician Fee Schedule NonFac rates for {s.name}.
-        {dual && ` Medicaid estimates use Q2 2026 ${s.name} state fee schedule rates.`}
+        {dual && ` Medicaid estimates use Q3 2026 ${s.name} state fee schedule rates.`}
         {" "}Device supply assumes 98977 (musculoskeletal, 16–30 active days), billable for approximately 50% of active patients per month.
         Clinician time assumes approximately 50% of active patients billed monthly, requiring documented management time plus at least one interactive communication.
-        {dual && s.m79===null && ` ${s.name} Medicaid does not separately reimburse 98979 (10-min tier); 98980 and 98981 remain billable.`}
+        {mdCoverageNote}
         {" "}Adoption rate reflects estimated proportion of caseload actively enrolled and using IndiAide.
         Setup code 98975 billed once per episode of care.
         IndiAide qualifies as Software as a Medical Device (SaMD) — no physical device or DME required.
