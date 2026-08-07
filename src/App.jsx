@@ -109,6 +109,21 @@ const CLINICIAN = [
   { key:"high", label:"40+ min", desc:"98980+98981", codeStr:"98980+98981" },
 ];
 
+// Given the clinician-time tier selected (which reflects actual time delivered),
+// finds the highest Medicaid-billable tier for that state — falling back to a
+// LOWER tier only, since you can always bill for less time than you spent but
+// never claim more. Returns null if the state's Medicaid covers nothing at
+// or below the selected tier.
+function resolveMdTier(tierKey, s) {
+  const cascade = tierKey === "high" ? ["high","mid","low"] : tierKey === "mid" ? ["mid","low"] : ["low"];
+  for (const key of cascade) {
+    if (key === "high" && s.m80 !== null && s.m81 !== null) return { key, rate: s.m80 + s.m81, codeStr: "98980+98981" };
+    if (key === "mid"  && s.m80 !== null)                    return { key, rate: s.m80,         codeStr: "98980" };
+    if (key === "low"  && s.m79 !== null)                    return { key, rate: s.m79,          codeStr: "98979" };
+  }
+  return null;
+}
+
 // ─── Billing detail copy ──────────────────────────────────────────────────────
 const BILLING_INFO = {
   device:{
@@ -392,7 +407,7 @@ function GateScreen({ onSubmit }) {
 }
 
 // Single payer revenue column (used in the two-column dual layout)
-function PayerCol({ label, color, bg, totalCount, activePts, devPts, devRate, devRev, devUncovered, devNote, clinPts, clinRate, clinRev, clinUncovered, clinNote, codeStr, monthly, annual, setup }) {
+function PayerCol({ label, color, bg, totalCount, activePts, devPts, devRate, devRev, devUncovered, devNote, clinPts, clinRate, clinRev, clinUncovered, clinNote, clinFallbackNote, codeStr, monthly, annual, setup }) {
   return (
     <div style={{flex:1,minWidth:0}}>
       <div style={{display:"inline-flex",alignItems:"center",gap:6,background:bg,borderRadius:6,padding:"3px 10px",marginBottom:12}}>
@@ -422,6 +437,7 @@ function PayerCol({ label, color, bg, totalCount, activePts, devPts, devRate, de
           : <>
               <div style={{fontSize:11,color:"#94A3B8",marginBottom:3}}>{fmtN(clinPts)} pts × {fmt(clinRate)} · 50% of active</div>
               <div style={{fontSize:15,fontWeight:800,color}}>{fmt(clinRev)}</div>
+              {clinFallbackNote && <div style={{fontSize:10,color:AMBER,fontStyle:"italic",marginTop:3,lineHeight:1.3}}>{clinFallbackNote}</div>}
             </>
         }
       </div>
@@ -491,22 +507,24 @@ export default function ROICalculator() {
     const mdClinPts = Math.round(mdActive * CLINICIAN_BILL_PCT);
     const mdDevUncov  = dual && s.m77 === null;
     const mdDevRev  = dual ? mdDevPts * s.m77 : 0;
-    const mdClinUncov = dual && (
-      clinicianKey==="low" ? s.m79===null :
-      clinicianKey==="mid" ? s.m80===null :
-      (s.m80===null && s.m81===null)
-    );
-    const mdClinRaw   = dual ? (clinicianKey==="low" ? s.m79 : clinicianKey==="mid" ? s.m80 : s.m80+s.m81) : null;
-    const mdClinR   = (!dual || mdClinUncov || mdClinRaw===null) ? 0 : mdClinRaw;
-    const mdClinRev = mdClinUncov ? 0 : mdClinPts * mdClinR;
+    const mdTier      = dual ? resolveMdTier(clinicianKey, s) : null;
+    const mdClinUncov = dual && mdTier === null;               // nothing billable at all, even with fallback
+    const mdClinFallback = dual && mdTier !== null && mdTier.key !== clinicianKey; // billing a lower tier than Medicare's selection
+    const mdClinR   = mdTier ? mdTier.rate : 0;
+    const mdClinRev = mdTier ? mdClinPts * mdTier.rate : 0;
     const mdMonthly = mdDevRev + mdClinRev;
     const mdAnnual  = mdMonthly * 12;
     const mdSetup   = dual ? mdCount * s.m75 : 0;
 
-    // Accurate per-tier note text for whichever code(s) are actually uncovered
+    // Note only shown when NOTHING is billable to Medicaid (no fallback tier exists either)
     const mdClinUncovCodes = clinicianKey==="low" ? "98979" : clinicianKey==="mid" ? "98980" : "98980 and 98981";
     const mdClinNote = `${mdClinUncovCodes} not reimbursed under ${s.name} Medicaid.`;
     const mdDevNote  = `98977 not reimbursed under ${s.name} Medicaid.`;
+    // Shown when Medicaid bills a lower tier than Medicare (fallback happened)
+    const mcClinCodeStr = clinicianKey==="low" ? "98979" : clinicianKey==="mid" ? "98980" : "98980+98981";
+    const mdClinFallbackNote = mdClinFallback
+      ? `Billed as ${mdTier.codeStr} (${CLINICIAN.find(c=>c.key===mdTier.key).label}) — ${s.name} Medicaid doesn't reimburse ${mcClinCodeStr}.`
+      : null;
 
     // Combined
     const totalActive    = mcActive + mdActive;
@@ -525,6 +543,7 @@ export default function ROICalculator() {
       mcActive, mcDevPts, mcClinPts, mcClinR, mcDevRev, mcClinRev, mcMonthly, mcAnnual, mcSetup,
       mdActive, mdDevPts, mdClinPts, mdClinR, mdClinRev, mdDevRev, mdMonthly, mdAnnual, mdSetup,
       mdClinUncov, mdDevUncov, mdClinNote, mdDevNote,
+      mdTier, mdClinFallback, mdClinFallbackNote,
       totalActive, indiRate, indiLabel, indiMonthly,
       combMonthly, combAnnual, combSetup, year1Total,
       netMonthly, netAnnual, roi,
@@ -542,20 +561,17 @@ export default function ROICalculator() {
     const mdD  = dual ? Math.round(mdA * DEVICE_BILL_PCT) * s.m77 : 0;
     return CLINICIAN.map(sc => {
       const mcCR  = sc.key==="low" ? s.r79 : sc.key==="mid" ? s.r80 : s.r80+s.r81;
-      const mdCUncov = dual && (
-        sc.key==="low" ? s.m79===null :
-        sc.key==="mid" ? s.m80===null :
-        (s.m80===null && s.m81===null)
-      );
-      const mdCRaw   = dual ? (sc.key==="low" ? s.m79 : sc.key==="mid" ? s.m80 : s.m80+s.m81) : 0;
-      const mdCR     = (!dual || mdCUncov || mdCRaw===null) ? 0 : mdCRaw;
+      const mdT   = dual ? resolveMdTier(sc.key, s) : null;
+      const mdCUncov   = dual && mdT === null;
+      const mdCFallback = dual && mdT !== null && mdT.key !== sc.key;
+      const mdCR = mdT ? mdT.rate : 0;
       const mcMr = mcD + Math.round(mcA * CLINICIAN_BILL_PCT) * mcCR;
       const mdMr = mdD + Math.round(mdA * CLINICIAN_BILL_PCT) * mdCR;
       const mr   = mcMr + mdMr;
       const ar   = mr * 12;
       const net  = ar - iR * totA * 12;
       const roi  = (iR * totA) > 0 ? Math.round((mr - iR*totA) / (iR*totA) * 100) : 0;
-      return { ...sc, mcMr, mdMr, mr, ar, net, roi, mdCUncov };
+      return { ...sc, mcMr, mdMr, mr, ar, net, roi, mdCUncov, mdCFallback, mdTierCodeStr: mdT ? mdT.codeStr : null };
     });
   }, [mcCount, mdCount, stateCode, adoptionKey, s, dual]);
 
@@ -655,7 +671,9 @@ export default function ROICalculator() {
             </select>
             <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>
               {dual
-                ? <span style={{color:GREEN,fontWeight:600}}>✅ Both Medicare &amp; Medicaid reimburse RTM in {s.name} · Q3 2026</span>
+                ? (mdCoverageNote
+                    ? <span style={{color:AMBER,fontWeight:600}}>⚠️ Medicare + partial Medicaid RTM coverage in {s.name} · Q3 2026</span>
+                    : <span style={{color:GREEN,fontWeight:600}}>✅ Both Medicare &amp; Medicaid fully reimburse RTM in {s.name} · Q3 2026</span>)
                 : "Medicare RTM · 2026 CMS PFS rates"
               }
             </div>
@@ -739,14 +757,20 @@ export default function ROICalculator() {
                 clinPts={C.mdClinPts} clinRate={C.mdClinR} clinRev={C.mdClinRev}
                 clinUncovered={C.mdClinUncov}
                 clinNote={C.mdClinNote}
-                codeStr={clin.codeStr}
+                clinFallbackNote={C.mdClinFallbackNote}
+                codeStr={C.mdTier ? C.mdTier.codeStr : clin.codeStr}
                 monthly={C.mdMonthly} annual={C.mdAnnual} setup={C.mdSetup}
               />
             </div>
             {/* Expanders */}
-            <div style={{borderTop:"1px solid #F1F5F9",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+            <div style={{borderTop:"1px solid #F1F5F9",paddingTop:12,display:"grid",gridTemplateColumns: C.mdClinFallback ? "1fr 1fr 1fr" : "1fr 1fr",gap:16}}>
               <BillingDetail id="device" open={expandedCode} onToggle={setExpandedCode} info={BILLING_INFO.device} />
-              <BillingDetail id="clinician" open={expandedCode} onToggle={setExpandedCode} info={BILLING_INFO[billKey]} />
+              <BillingDetail id="clinician" open={expandedCode} onToggle={setExpandedCode}
+                info={C.mdClinFallback ? {...BILLING_INFO[billKey], title:`Medicare: ${BILLING_INFO[billKey].title}`} : BILLING_INFO[billKey]} />
+              {C.mdClinFallback && (
+                <BillingDetail id="clinician_md" open={expandedCode} onToggle={setExpandedCode}
+                  info={{...BILLING_INFO[`clinician_${C.mdTier.key}`], title:`Medicaid: ${BILLING_INFO[`clinician_${C.mdTier.key}`].title}`}} />
+              )}
             </div>
           </>
         ) : (
@@ -854,6 +878,7 @@ export default function ROICalculator() {
                     <td style={{padding:"10px 8px",fontFamily:"monospace",fontSize:11,color:on?BRAND:"#94A3B8"}}>
                       {row.codeStr}
                       {row.mdCUncov && <span style={{marginLeft:4,fontSize:9,color:"#94A3B8",fontFamily:"sans-serif",fontStyle:"italic"}}>MD: {row.key==="low"?"98979":row.key==="mid"?"98980":"98980+81"} N/C</span>}
+                      {row.mdCFallback && <span style={{marginLeft:4,fontSize:9,color:AMBER,fontFamily:"sans-serif",fontStyle:"italic"}}>MD → {row.mdTierCodeStr}</span>}
                     </td>
                     {dual && <td style={{padding:"10px 8px",textAlign:"right",color:BLUE,fontWeight:600}}>{fmt(row.mcMr)}</td>}
                     {dual && <td style={{padding:"10px 8px",textAlign:"right",color:GREEN,fontWeight:600}}>{fmt(row.mdMr)}</td>}
