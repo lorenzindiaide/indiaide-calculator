@@ -267,6 +267,8 @@ function GateScreen({ onSubmit }) {
   const [practice, setPractice] = useState("");
   const [state,    setState]    = useState("");
   const [role,     setRole]     = useState("");
+  const [adultPatients,     setAdultPatients]     = useState("");
+  const [pediatricPatients, setPediatricPatients] = useState("");
   const [errors,   setErrors]   = useState({});
   const [loading,  setLoading]  = useState(false);
 
@@ -291,7 +293,11 @@ function GateScreen({ onSubmit }) {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
     setLoading(true);
-    const payload = { name:name.trim(), email:email.trim(), phone:phone.trim(), practice:practice.trim(), state, role, submittedAt: new Date().toISOString() };
+    const payload = {
+      name:name.trim(), email:email.trim(), phone:phone.trim(), practice:practice.trim(), state, role,
+      adultPatients: adultPatients.trim(), pediatricPatients: pediatricPatients.trim(),
+      submittedAt: new Date().toISOString(),
+    };
     if (LEAD_WEBHOOK_URL) {
       try {
         const params = new URLSearchParams(payload).toString();
@@ -359,6 +365,27 @@ function GateScreen({ onSubmit }) {
           </div>
         </div>
 
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:4}}>
+          <div>
+            <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:5}}>
+              Adult Patients / Month <span style={{fontWeight:400,color:"#94A3B8"}}>(optional)</span>
+            </label>
+            <input type="number" min={0} value={adultPatients} onChange={e => setAdultPatients(e.target.value)}
+              placeholder="e.g. 80" style={inputStyle("adultPatients")} />
+          </div>
+          <div>
+            <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:5}}>
+              Pediatric Patients / Month <span style={{fontWeight:400,color:"#94A3B8"}}>(optional)</span>
+            </label>
+            <input type="number" min={0} value={pediatricPatients} onChange={e => setPediatricPatients(e.target.value)}
+              placeholder="e.g. 40" style={inputStyle("pediatricPatients")} />
+          </div>
+        </div>
+        <p style={{margin:"0 0 18px",fontSize:10,color:"#94A3B8",lineHeight:1.5}}>
+          Estimated average <strong>individual patients seen</strong> per month — not total sessions or visits.
+          We'll use this to pre-fill your Medicare/Medicaid estimate below (you can adjust it there).
+        </p>
+
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:24}}>
           <div>
             {fieldLabel("State of Practice", "state")}
@@ -396,6 +423,10 @@ function GateScreen({ onSubmit }) {
 
         <p style={{margin:"14px 0 0",fontSize:11,color:"#94A3B8",textAlign:"center",lineHeight:1.6}}>
           We'll use this to personalize your estimate and may follow up with resources specific to your state and discipline. No spam, ever.
+        </p>
+        <p style={{margin:"8px 0 0",fontSize:10,color:"#94A3B8",textAlign:"center",lineHeight:1.6}}>
+          Estimate uses publicly available Medicare and Medicaid fee schedules. Commercial payers typically reimburse at or above these rates,
+          so your actual opportunity may be higher than shown.
         </p>
       </div>
 
@@ -467,6 +498,18 @@ export default function ROICalculator() {
   const [adoptionKey,  setAdoptionKey]  = useState("mid");
   const [clinicianKey, setClinicianKey] = useState("mid");
   const [expandedCode, setExpandedCode] = useState(null);
+
+  // Raw monthly patient counts from the gate form (0 if left blank there)
+  const [adultPatients,     setAdultPatients]     = useState(0);
+  const [pediatricPatients, setPediatricPatients] = useState(0);
+
+  // Payer-mix % used to derive the Medicare/Medicaid boxes above from the raw counts.
+  // NOTE: these three defaults are placeholders, not real market data — swap in
+  // your actual SLP/OT payer-mix figures when you have them. They only affect the
+  // pre-fill; the Medicare/Medicaid boxes remain freely editable either way.
+  const [adultsMcPct, setAdultsMcPct] = useState(50);  // % of adult patients on Medicare
+  const [adultsMdPct, setAdultsMdPct] = useState(20);  // % of adult patients on Medicaid
+  const [pedsMdPct,   setPedsMdPct]   = useState(55);  // % of pediatric patients on Medicaid
 
   const s    = ALL_STATES[stateCode] || ALL_STATES["TX"];
   const dual = isDualState(s);
@@ -597,6 +640,16 @@ export default function ROICalculator() {
       <GateScreen onSubmit={data => {
         setLead(data);
         setStateCode(data.state);
+        const adults = parseInt(data.adultPatients, 10) || 0;
+        const peds   = parseInt(data.pediatricPatients, 10) || 0;
+        setAdultPatients(adults);
+        setPediatricPatients(peds);
+        // Only override the 200/50 defaults if the prospect actually gave us counts —
+        // someone who skips these fields still gets a usable starting point.
+        if (adults > 0 || peds > 0) {
+          setMcCount(Math.round(adults * adultsMcPct / 100));
+          setMdCount(Math.round(adults * adultsMdPct / 100 + peds * pedsMdPct / 100));
+        }
       }} />
     );
   }
@@ -629,6 +682,52 @@ export default function ROICalculator() {
 
       {/* ── Inputs ────────────────────────────────────────────────────────── */}
       <div style={card}>
+
+        {(adultPatients>0 || pediatricPatients>0) && (
+          <div style={{marginBottom:18,padding:"12px 14px",background:"#F8FAFC",borderRadius:8,border:"1px solid #E2E8F0"}}>
+            <div style={{fontSize:12,fontWeight:600,color:"#334155",marginBottom:10}}>
+              Your payer mix <span style={{color:"#94A3B8",fontWeight:400}}>— adjust to match your practice</span>
+            </div>
+            {[
+              { label:"Adults on Medicare",   val:adultsMcPct, set:setAdultsMcPct },
+              { label:"Adults on Medicaid",   val:adultsMdPct, set:setAdultsMdPct },
+              { label:"Pediatric on Medicaid",val:pedsMdPct,   set:setPedsMdPct   },
+            ].map(({label,val,set}) => (
+              <div key={label} style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+                <label style={{fontSize:13,color:"#64748B",minWidth:150}}>{label}</label>
+                <input type="range" min={0} max={100} step={1} value={val}
+                  onChange={e => {
+                    let pct = parseInt(e.target.value,10);
+                    // Adults on Medicare + Adults on Medicaid draw from the SAME adult pool —
+                    // they must share one 100% budget, or maxing both out double-counts adults
+                    // into ghost patients that don't exist. Pediatric has its own pool (no
+                    // Medicare eligibility), so it stays independent.
+                    let newAdultsMc = adultsMcPct, newAdultsMd = adultsMdPct;
+                    if (label==="Adults on Medicare") {
+                      newAdultsMc = pct;
+                      if (newAdultsMc + newAdultsMd > 100) newAdultsMd = 100 - newAdultsMc;
+                      setAdultsMcPct(newAdultsMc); setAdultsMdPct(newAdultsMd);
+                    } else if (label==="Adults on Medicaid") {
+                      newAdultsMd = pct;
+                      if (newAdultsMc + newAdultsMd > 100) newAdultsMc = 100 - newAdultsMd;
+                      setAdultsMdPct(newAdultsMd); setAdultsMcPct(newAdultsMc);
+                    } else {
+                      set(pct);
+                    }
+                    const newPedsMd = label==="Pediatric on Medicaid" ? pct : pedsMdPct;
+                    setMcCount(Math.round(adultPatients * newAdultsMc / 100));
+                    setMdCount(Math.round(adultPatients * newAdultsMd / 100 + pediatricPatients * newPedsMd / 100));
+                  }}
+                  style={{flex:1}} />
+                <span style={{fontSize:13,fontWeight:600,minWidth:34,textAlign:"right"}}>{val}%</span>
+              </div>
+            ))}
+            <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>
+              Adults on Medicare + Adults on Medicaid share one 100% pool — raising one lowers the other.
+            </div>
+          </div>
+        )}
+
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:18}}>
           {/* Medicare patients */}
           <div>
@@ -639,7 +738,9 @@ export default function ROICalculator() {
               onChange={e => setMcCount(Math.max(0,Math.min(999999,parseInt(e.target.value)||0)))}
               style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${BLUE}44`,borderRadius:8,fontSize:16,fontWeight:700,color:"#0F172A",boxSizing:"border-box",background:"#fff",colorScheme:"light"}}
             />
-            <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>Active Medicare caseload</div>
+            <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>
+              {adultPatients>0 ? `${adultsMcPct}% of ${fmtN(adultPatients)} adults` : "Active Medicare caseload"}
+            </div>
           </div>
           {/* Medicaid patients */}
           <div>
@@ -651,7 +752,10 @@ export default function ROICalculator() {
               style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${dual?GREEN+"44":"#E2E8F0"}`,borderRadius:8,fontSize:16,fontWeight:700,color:dual?"#0F172A":"#94A3B8",boxSizing:"border-box",background:dual?"#fff":"#F8FAFC",colorScheme:"light"}}
             />
             <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>
-              {dual ? "Active Medicaid caseload" : `Medicaid RTM not reimbursed in ${s.name}`}
+              {!dual ? `Medicaid RTM not reimbursed in ${s.name}`
+                : (adultPatients>0||pediatricPatients>0)
+                  ? `${fmtN(Math.round(adultPatients*adultsMdPct/100))} adult + ${fmtN(Math.round(pediatricPatients*pedsMdPct/100))} pediatric`
+                  : "Active Medicaid caseload"}
             </div>
           </div>
           {/* State */}
@@ -679,6 +783,21 @@ export default function ROICalculator() {
             </div>
           </div>
         </div>
+
+        {(() => {
+          const totalPts = adultPatients + pediatricPatients;
+          const gap = totalPts - mcCount - mdCount;
+          if (totalPts <= 0 || gap <= 0) return null;
+          return (
+            <div style={{marginBottom:18,padding:"11px 13px",background:AMBER_LIGHT,borderRadius:8}}>
+              <span style={{fontSize:12,color:"#92400E",lineHeight:1.55}}>
+                <strong>{fmtN(gap)} of your {fmtN(totalPts)} monthly patients are commercial.</strong>{" "}
+                Figures above use published Medicare and Medicaid fee schedules only — commercial payers frequently
+                reimburse at or above these rates, so your actual opportunity is likely higher.
+              </span>
+            </div>
+          );
+        })()}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
           <div>
             <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:6}}>IndiAide Adoption Rate</label>
