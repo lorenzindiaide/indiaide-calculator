@@ -261,7 +261,8 @@ const ROLES = [
 ];
 
 function GateScreen({ onSubmit }) {
-  const [name,     setName]     = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName,  setLastName]  = useState("");
   const [email,    setEmail]    = useState("");
   const [phone,    setPhone]    = useState("");
   const [practice, setPractice] = useState("");
@@ -281,7 +282,8 @@ function GateScreen({ onSubmit }) {
 
   function validate() {
     const e = {};
-    if (!name.trim())     e.name     = "Required";
+    if (!firstName.trim()) e.firstName = "Required";
+    if (!lastName.trim())  e.lastName  = "Required";
     if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) e.email = "Valid email required";
     if (!practice.trim()) e.practice = "Required";
     if (!state)           e.state    = "Required";
@@ -294,7 +296,7 @@ function GateScreen({ onSubmit }) {
     if (Object.keys(e).length) { setErrors(e); return; }
     setLoading(true);
     const payload = {
-      name:name.trim(), email:email.trim(), phone:phone.trim(), practice:practice.trim(), state, role,
+      firstName:firstName.trim(), lastName:lastName.trim(), email:email.trim(), phone:phone.trim(), practice:practice.trim(), state, role,
       adultPatients: adultPatients.trim(), pediatricPatients: pediatricPatients.trim(),
       submittedAt: new Date().toISOString(),
     };
@@ -336,25 +338,24 @@ function GateScreen({ onSubmit }) {
       <div style={{background:"#fff",borderRadius:20,border:"1px solid #E2E8F0",padding:"32px 28px",width:"100%",maxWidth:440,boxShadow:"0 8px 32px rgba(0,0,0,0.07)"}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
           <div>
-            {fieldLabel("Full Name", "name")}
-            <input value={name} onChange={e => { setName(e.target.value); setErrors(p=>({...p,name:""})); }}
-              placeholder="Jane Smith" style={inputStyle("name")} />
-            {errors.name && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.name}</div>}
+            {fieldLabel("First Name", "firstName")}
+            <input value={firstName} onChange={e => { setFirstName(e.target.value); setErrors(p=>({...p,firstName:""})); }}
+              placeholder="Jane" style={inputStyle("firstName")} />
+            {errors.firstName && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.firstName}</div>}
           </div>
+          <div>
+            {fieldLabel("Last Name", "lastName")}
+            <input value={lastName} onChange={e => { setLastName(e.target.value); setErrors(p=>({...p,lastName:""})); }}
+              placeholder="Smith" style={inputStyle("lastName")} />
+            {errors.lastName && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.lastName}</div>}
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
           <div>
             {fieldLabel("Work Email", "email")}
             <input type="email" value={email} onChange={e => { setEmail(e.target.value); setErrors(p=>({...p,email:""})); }}
               placeholder="jane@clinicname.com" style={inputStyle("email")} />
             {errors.email && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.email}</div>}
-          </div>
-        </div>
-
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
-          <div>
-            {fieldLabel("Practice / Clinic Name", "practice")}
-            <input value={practice} onChange={e => { setPractice(e.target.value); setErrors(p=>({...p,practice:""})); }}
-              placeholder="Sunrise Therapy Group" style={inputStyle("practice")} />
-            {errors.practice && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.practice}</div>}
           </div>
           <div>
             <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:5}}>
@@ -362,6 +363,15 @@ function GateScreen({ onSubmit }) {
             </label>
             <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
               placeholder="(555) 000-0000" style={inputStyle("phone")} />
+          </div>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <div>
+            {fieldLabel("Practice / Clinic Name", "practice")}
+            <input value={practice} onChange={e => { setPractice(e.target.value); setErrors(p=>({...p,practice:""})); }}
+              placeholder="Sunrise Therapy Group" style={inputStyle("practice")} />
+            {errors.practice && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.practice}</div>}
           </div>
         </div>
 
@@ -667,7 +677,7 @@ export default function ROICalculator() {
           RTM Revenue Calculator
         </div>
         <h1 style={{margin:0,fontSize:26,fontWeight:800,color:"#0F172A",lineHeight:1.25}}>
-          {lead.name.split(" ")[0]}, here's your RTM revenue estimate
+          {lead.firstName}, here's your RTM revenue estimate
         </h1>
         <p style={{margin:"8px 0 0",fontSize:13,color:"#64748B",lineHeight:1.6,maxWidth:520,marginLeft:"auto",marginRight:"auto"}}>
           For <strong>{lead.practice}</strong> · {lead.role}
