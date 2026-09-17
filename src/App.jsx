@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 
 // ─── Lead capture config ──────────────────────────────────────────────────────
 // Replace LEAD_WEBHOOK_URL with your Zapier / Make.com / HubSpot webhook endpoint.
@@ -204,6 +204,90 @@ function KpiCard({ label, value, sub, color, inverted }) {
   );
 }
 
+// Bigger-type KPI tile for the conference compact view — readable from a few feet away
+function BigKpi({ label, value, color, inverted }) {
+  return (
+    <div style={{
+      borderRadius:14, padding:"20px 14px", textAlign:"center",
+      background:inverted?color:"#fff",
+      border:`1.5px solid ${inverted?color:color+"33"}`,
+      boxShadow:inverted?`0 4px 20px ${color}28`:"0 1px 4px rgba(0,0,0,0.04)",
+    }}>
+      <div style={{fontSize:"clamp(10px,2vw,12px)",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8,
+        color:inverted?"rgba(255,255,255,0.72)":"#6B7280"}}>{label}</div>
+      <div style={{fontSize:"clamp(28px,7vw,42px)",fontWeight:800,lineHeight:1,color:inverted?"#fff":color}}>{value}</div>
+    </div>
+  );
+}
+
+// Inline Calendly widget, prefilled with the lead's name and email.
+// Loads the Calendly script once (or reuses it if already present) and initializes
+// the widget imperatively via Calendly.initInlineWidget so it works reliably inside
+// a React SPA, rather than relying on the script's own DOM auto-scan on page load.
+// If the script is blocked (ad blockers, network filters — real risk on venue wifi)
+// or errors out, falls back to a plain "Book a time" button after 4s instead of
+// leaving a silent blank box.
+function CalendlyInline({ name, email, height = 620 }) {
+  const containerRef = useRef(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const url = `${BOOKING_URL}?name=${encodeURIComponent(name || "")}&email=${encodeURIComponent(email || "")}`;
+
+    function init() {
+      if (cancelled) return;
+      if (window.Calendly && containerRef.current) {
+        try {
+          containerRef.current.innerHTML = "";
+          window.Calendly.initInlineWidget({ url, parentElement: containerRef.current });
+        } catch (err) {
+          console.error("Calendly init error:", err);
+          setFailed(true);
+        }
+      } else {
+        setFailed(true);
+      }
+    }
+
+    const timeoutId = setTimeout(() => { if (!window.Calendly) setFailed(true); }, 4000);
+
+    if (window.Calendly) {
+      init();
+    } else {
+      const existing = document.querySelector('script[src="https://assets.calendly.com/assets/external/widget.js"]');
+      if (existing) {
+        existing.addEventListener("load", init);
+        existing.addEventListener("error", () => setFailed(true));
+      } else {
+        const script = document.createElement("script");
+        script.src = "https://assets.calendly.com/assets/external/widget.js";
+        script.async = true;
+        script.onload = init;
+        script.onerror = () => setFailed(true);
+        document.body.appendChild(script);
+      }
+    }
+
+    return () => { cancelled = true; clearTimeout(timeoutId); };
+  }, [name, email]);
+
+  if (failed) {
+    return (
+      <div style={{minWidth:280, minHeight:120, width:"100%", display:"flex", flexDirection:"column",
+        alignItems:"center", justifyContent:"center", gap:10, padding:20, textAlign:"center"}}>
+        <div style={{fontSize:13, color:"#64748B"}}>Scheduling widget couldn't load — often an ad blocker or network filter.</div>
+        <button onClick={() => window.open(`${BOOKING_URL}?name=${encodeURIComponent(name || "")}&email=${encodeURIComponent(email || "")}`, "_blank")} style={{background:BRAND, color:"#fff", border:"none",
+          borderRadius:10, padding:"10px 20px", fontSize:14, fontWeight:700, cursor:"pointer"}}>
+          Book a time →
+        </button>
+      </div>
+    );
+  }
+
+  return <div ref={containerRef} style={{minWidth:280, height, width:"100%"}} />;
+}
+
 function CodeBadge({ code, color, bg }) {
   return (
     <span style={{
@@ -260,7 +344,7 @@ const ROLES = [
   "Other",
 ];
 
-function GateScreen({ onSubmit }) {
+function GateScreen({ onSubmit, source }) {
   const [firstName, setFirstName] = useState("");
   const [lastName,  setLastName]  = useState("");
   const [email,    setEmail]    = useState("");
@@ -270,6 +354,10 @@ function GateScreen({ onSubmit }) {
   const [role,     setRole]     = useState("");
   const [adultPatients,     setAdultPatients]     = useState("");
   const [pediatricPatients, setPediatricPatients] = useState("");
+  const [disciplines,     setDisciplines]     = useState([]);
+  const [clinicianCount,  setClinicianCount]  = useState("");
+  const [privatePayShare, setPrivatePayShare] = useState("");
+  const [fixFirst,        setFixFirst]        = useState("");
   const [errors,   setErrors]   = useState({});
   const [loading,  setLoading]  = useState(false);
 
@@ -285,9 +373,13 @@ function GateScreen({ onSubmit }) {
     if (!firstName.trim()) e.firstName = "Required";
     if (!lastName.trim())  e.lastName  = "Required";
     if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) e.email = "Valid email required";
+    if (!phone.trim())     e.phone     = "Required";
     if (!practice.trim()) e.practice = "Required";
     if (!state)           e.state    = "Required";
     if (!role)            e.role     = "Required";
+    if (!disciplines.length)    e.disciplines    = "Select at least one";
+    if (!clinicianCount)        e.clinicianCount = "Required";
+    if (!privatePayShare)       e.privatePayShare = "Required";
     return e;
   }
 
@@ -298,6 +390,7 @@ function GateScreen({ onSubmit }) {
     const payload = {
       firstName:firstName.trim(), lastName:lastName.trim(), email:email.trim(), phone:phone.trim(), practice:practice.trim(), state, role,
       adultPatients: adultPatients.trim(), pediatricPatients: pediatricPatients.trim(),
+      source, disciplines: disciplines.join(", "), clinicianCount, privatePayShare, fixFirst: fixFirst.trim(),
       submittedAt: new Date().toISOString(),
     };
     if (LEAD_WEBHOOK_URL) {
@@ -358,11 +451,10 @@ function GateScreen({ onSubmit }) {
             {errors.email && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.email}</div>}
           </div>
           <div>
-            <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:5}}>
-              Phone Number <span style={{fontWeight:400,color:"#94A3B8"}}>(optional)</span>
-            </label>
-            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+            {fieldLabel("Phone Number", "phone")}
+            <input type="tel" value={phone} onChange={e => { setPhone(e.target.value); setErrors(p=>({...p,phone:""})); }}
               placeholder="(555) 000-0000" style={inputStyle("phone")} />
+            {errors.phone && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.phone}</div>}
           </div>
         </div>
 
@@ -420,6 +512,55 @@ function GateScreen({ onSubmit }) {
             </select>
             {errors.role && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.role}</div>}
           </div>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          {fieldLabel("Disciplines on Your Team", "disciplines")}
+          <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
+            {["SLP","OT","PT","Other"].map(d => (
+              <label key={d} style={{display:"flex",alignItems:"center",gap:6,fontSize:13,color:"#334155",
+                border:`1.5px solid ${disciplines.includes(d)?BRAND:"#E2E8F0"}`,borderRadius:8,padding:"7px 12px",
+                cursor:"pointer",background:disciplines.includes(d)?BRAND_LIGHT:"#fff"}}>
+                <input type="checkbox" checked={disciplines.includes(d)}
+                  onChange={() => {
+                    setDisciplines(prev => prev.includes(d) ? prev.filter(x=>x!==d) : [...prev,d]);
+                    setErrors(p=>({...p,disciplines:""}));
+                  }}
+                  style={{margin:0}} />
+                {d}
+              </label>
+            ))}
+          </div>
+          {errors.disciplines && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.disciplines}</div>}
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+          <div>
+            {fieldLabel("Number of Clinicians", "clinicianCount")}
+            <select value={clinicianCount} onChange={e => { setClinicianCount(e.target.value); setErrors(p=>({...p,clinicianCount:""})); }}
+              style={{...inputStyle("clinicianCount"),color:clinicianCount?"#0F172A":"#94A3B8"}}>
+              <option value="" disabled>Select</option>
+              {["1","2-4","5-9","10-24","25-49","50+"].map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+            {errors.clinicianCount && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.clinicianCount}</div>}
+          </div>
+          <div>
+            {fieldLabel("Private Pay Share of Caseload", "privatePayShare")}
+            <select value={privatePayShare} onChange={e => { setPrivatePayShare(e.target.value); setErrors(p=>({...p,privatePayShare:""})); }}
+              style={{...inputStyle("privatePayShare"),color:privatePayShare?"#0F172A":"#94A3B8"}}>
+              <option value="" disabled>Select</option>
+              {["Under 20%","20-50%","Over 50%","Private pay only"].map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+            {errors.privatePayShare && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.privatePayShare}</div>}
+          </div>
+        </div>
+
+        <div style={{marginBottom:18}}>
+          <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:5}}>
+            What Would You Most Want RTM to Fix or Support First? <span style={{fontWeight:400,color:"#94A3B8"}}>(optional)</span>
+          </label>
+          <input value={fixFirst} onChange={e => setFixFirst(e.target.value)}
+            placeholder="Knowing whether the home program got done" style={inputStyle("fixFirst")} />
         </div>
 
         <button onClick={handleSubmit} disabled={loading} style={{
@@ -520,6 +661,13 @@ export default function ROICalculator() {
   const [adultsMcPct, setAdultsMcPct] = useState(50);  // % of adult patients on Medicare
   const [adultsMdPct, setAdultsMdPct] = useState(20);  // % of adult patients on Medicaid
   const [pedsMdPct,   setPedsMdPct]   = useState(55);  // % of pediatric patients on Medicaid
+
+  // Conference/embed routing — read once from the URL. source defaults to "website"
+  // when absent (the existing rtm-calculator page); mode=table triggers the compact
+  // laptop/tablet view used at the conference table.
+  const source      = useMemo(() => new URLSearchParams(window.location.search).get("source") || "website", []);
+  const isTableMode = useMemo(() => new URLSearchParams(window.location.search).get("mode") === "table", []);
+  const [expanded, setExpanded] = useState(false); // "See full breakdown" toggle in compact view
 
   const s    = ALL_STATES[stateCode] || ALL_STATES["TX"];
   const dual = isDualState(s);
@@ -647,16 +795,20 @@ export default function ROICalculator() {
   // Gate check — all hooks above, conditional render below (rules of hooks compliant)
   if (!lead) {
     return (
-      <GateScreen onSubmit={data => {
+      <GateScreen source={source} onSubmit={data => {
         setLead(data);
         setStateCode(data.state);
-        const adults = parseInt(data.adultPatients, 10) || 0;
-        const peds   = parseInt(data.pediatricPatients, 10) || 0;
-        setAdultPatients(adults);
-        setPediatricPatients(peds);
-        // Only override the 200/50 defaults if the prospect actually gave us counts —
-        // someone who skips these fields still gets a usable starting point.
-        if (adults > 0 || peds > 0) {
+        // Only treat the fields as "given" if the prospect actually typed something —
+        // someone who leaves both blank still gets the 200/50 starting point. But once
+        // either field has real input (including an explicit 0), trust it completely:
+        // an explicit 0 should zero out that payer, not fall back to the defaults.
+        const adultsGiven = data.adultPatients.trim() !== "";
+        const pedsGiven    = data.pediatricPatients.trim() !== "";
+        if (adultsGiven || pedsGiven) {
+          const adults = parseInt(data.adultPatients, 10) || 0;
+          const peds   = parseInt(data.pediatricPatients, 10) || 0;
+          setAdultPatients(adults);
+          setPediatricPatients(peds);
           setMcCount(Math.round(adults * adultsMcPct / 100));
           setMdCount(Math.round(adults * adultsMdPct / 100 + peds * pedsMdPct / 100));
         }
@@ -669,26 +821,70 @@ export default function ROICalculator() {
     <div style={{fontFamily:"'Inter',sans-serif",width:"100%",maxWidth:860,margin:"0 auto",padding:"16px 24px",boxSizing:"border-box"}}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div style={{textAlign:"center",padding:"20px 0 24px"}}>
-        <a href="https://calendly.com/indiaide-scheduling/30min" target="_blank" rel="noopener noreferrer">
-          <img src="/indiaide-animation.svg" alt="IndiAide" style={{width:320,marginBottom:12,cursor:"pointer"}} />
-        </a>
-        <div style={{fontSize:22,fontWeight:800,color:BRAND,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8}}>
-          RTM Revenue Calculator
-        </div>
-        <h1 style={{margin:0,fontSize:26,fontWeight:800,color:"#0F172A",lineHeight:1.25}}>
-          {lead.firstName}, here's your RTM revenue estimate
-        </h1>
-        <p style={{margin:"8px 0 0",fontSize:13,color:"#64748B",lineHeight:1.6,maxWidth:520,marginLeft:"auto",marginRight:"auto"}}>
-          For <strong>{lead.practice}</strong> · {lead.role}
-          {" "}· Based on 2026 Medicare CMS rates{dual ? " + Medicaid" : ""} for {s.name}.
-        </p>
-        {dual && (
-          <div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,background:GREEN_LIGHT,border:"1px solid #D1FAE5",borderRadius:999,padding:"4px 12px"}}>
-            <span style={{color:GREEN,fontSize:11,fontWeight:700}}>✅ {s.name} Medicaid also reimburses RTM — both payers shown below</span>
+      {isTableMode ? (
+        <div style={{textAlign:"center",padding:"18px 0 10px"}}>
+          <div style={{fontSize:"clamp(24px,5vw,34px)",fontWeight:800,color:"#0F172A",lineHeight:1.15}}>{lead.practice}</div>
+          <div style={{fontSize:"clamp(14px,3vw,18px)",fontWeight:600,color:BRAND,marginTop:4}}>{s.name}</div>
+          <div style={{fontSize:"clamp(11px,2.5vw,13px)",fontWeight:600,color:"#64748B",marginTop:4}}>
+            {fmtN(adultPatients)} adult · {fmtN(pediatricPatients)} pediatric patients/month
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div style={{textAlign:"center",padding:"20px 0 24px"}}>
+          <a href="https://calendly.com/indiaide-scheduling/30min" target="_blank" rel="noopener noreferrer">
+            <img src="/indiaide-animation.svg" alt="IndiAide" style={{width:320,marginBottom:12,cursor:"pointer"}} />
+          </a>
+          <div style={{fontSize:22,fontWeight:800,color:BRAND,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8}}>
+            RTM Revenue Calculator
+          </div>
+          <h1 style={{margin:0,fontSize:26,fontWeight:800,color:"#0F172A",lineHeight:1.25}}>
+            {lead.firstName}, here's your RTM revenue estimate
+          </h1>
+          <p style={{margin:"8px 0 0",fontSize:13,color:"#64748B",lineHeight:1.6,maxWidth:520,marginLeft:"auto",marginRight:"auto"}}>
+            For <strong>{lead.practice}</strong> · {lead.role}
+            {" "}· Based on 2026 Medicare CMS rates{dual ? " + Medicaid" : ""} for {s.name}.
+          </p>
+          {dual && (
+            <div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,background:GREEN_LIGHT,border:"1px solid #D1FAE5",borderRadius:999,padding:"4px 12px"}}>
+              <span style={{color:GREEN,fontSize:11,fontWeight:700}}>✅ {s.name} Medicaid also reimburses RTM — both payers shown below</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Compact summary (conference table view) ─────────────────────────── */}
+      {isTableMode && (
+        <div style={{marginBottom:20}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:16}}>
+            <BigKpi label="Monthly Conservative" value={fmt(C.combMonthly)} color={BRAND} inverted />
+            <BigKpi label="Annual Conservative"  value={fmtK(C.combAnnual)} color={BRAND} inverted />
+            <BigKpi label="Net Profit Monthly"   value={fmt(C.netMonthly)} color={GREEN} />
+            <BigKpi label="ROI"                  value={`${C.roi}%`} color={AMBER} />
+          </div>
+          <div style={{textAlign:"center",marginBottom:18}}>
+            <div style={{fontSize:12,fontWeight:800,color:AMBER,textTransform:"uppercase",letterSpacing:"0.06em"}}>Year 1 Bonus — CPT 98975</div>
+            <div style={{fontSize:"clamp(24px,6vw,32px)",fontWeight:800,color:AMBER,marginTop:2}}>+ {fmt(C.combSetup)}</div>
+          </div>
+          <div style={{background:"#fff",borderRadius:12,padding:8,marginBottom:14}}>
+            <CalendlyInline name={lead.firstName} email={lead.email} height={600} />
+          </div>
+          <div style={{textAlign:"center"}}>
+            <button onClick={() => setExpanded(x => !x)} style={{
+              background:"transparent",border:"none",color:BRAND,fontSize:13,fontWeight:700,
+              cursor:"pointer",textDecoration:"underline",padding:8,
+            }}>
+              {expanded ? "Hide full breakdown ↑" : "See full breakdown ↓"}
+            </button>
+          </div>
+          {!expanded && (
+            <p style={{textAlign:"center",fontSize:10,color:"#94A3B8",marginTop:10,lineHeight:1.6}}>
+              Estimate uses published Medicare{dual ? " and Medicaid" : ""} fee schedules for {s.name}. Actual reimbursement varies by payer mix and documentation. For informational purposes only.
+            </p>
+          )}
+        </div>
+      )}
+
+      {(!isTableMode || expanded) && <>
 
       {/* ── Inputs ────────────────────────────────────────────────────────── */}
       <div style={card}>
@@ -828,13 +1024,15 @@ export default function ROICalculator() {
         </div>
       </div>
 
-      {/* ── KPI Cards ─────────────────────────────────────────────────────── */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
-        <KpiCard label={dual?"Combined Monthly":"Monthly Revenue"} value={fmt(C.combMonthly)} sub={dual?"Medicare + Medicaid":"recurring"} color={BRAND} inverted />
-        <KpiCard label={dual?"Combined Annual":"Annual Revenue"}   value={fmtK(C.combAnnual)} sub="recurring" color={BRAND} inverted />
-        <KpiCard label="Net Monthly"  value={fmt(C.netMonthly)} sub={`$${C.indiRate}/pt · ${C.indiLabel} tier`} color={GREEN} />
-        <KpiCard label="ROI"          value={`${C.roi}%`}       sub="return on platform" color={AMBER} />
-      </div>
+      {/* ── KPI Cards (skipped in table mode — compact tiles above cover this) ── */}
+      {!isTableMode && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+          <KpiCard label={dual?"Combined Monthly":"Monthly Revenue"} value={fmt(C.combMonthly)} sub={dual?"Medicare + Medicaid":"recurring"} color={BRAND} inverted />
+          <KpiCard label={dual?"Combined Annual":"Annual Revenue"}   value={fmtK(C.combAnnual)} sub="recurring" color={BRAND} inverted />
+          <KpiCard label="Net Monthly"  value={fmt(C.netMonthly)} sub={`$${C.indiRate}/pt · ${C.indiLabel} tier`} color={GREEN} />
+          <KpiCard label="ROI"          value={`${C.roi}%`}       sub="return on platform" color={AMBER} />
+        </div>
+      )}
 
       {/* ── Year 1 Setup Banner ───────────────────────────────────────────── */}
       <div style={{background:AMBER_LIGHT,border:"1px solid #FDE68A",borderRadius:12,padding:"14px 20px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,flexWrap:"wrap"}}>
@@ -1028,10 +1226,10 @@ export default function ROICalculator() {
       {/* ── CTA ───────────────────────────────────────────────────────────── */}
       <div style={{background:BRAND,borderRadius:18,padding:"32px 28px",color:"#fff",boxShadow:`0 8px 32px ${BRAND}33`,textAlign:"center"}}>
         <div style={{fontSize:13,opacity:0.8,lineHeight:1.6,marginBottom:18,maxWidth:520,margin:"0 auto 18px"}}>
-          You spend time between sessions on your patients — reviewing their progress, adjusting their home program, checking in. That work doesn't fall through the cracks. But for most clinics, it also doesn't get reimbursed.
+          You spend time between sessions on your patients, reviewing their progress, adjusting their home program, checking in. That work doesn't fall through the cracks. But for most clinics, it also doesn't get reimbursed.
         </div>
         <div style={{fontSize:24,fontWeight:800,lineHeight:1.2,marginBottom:10}}>
-          {fmtK(C.combAnnual)}/year{dual ? " across both payers" : ""} — from work you're already doing.
+          {fmtK(C.combAnnual)}/year{dual ? " across both payers" : ""}, from work you're already doing.
         </div>
         <div style={{fontSize:13,opacity:0.82,lineHeight:1.65,marginBottom:20,maxWidth:500,margin:"0 auto 20px"}}>
           IndiAide tracks everything {dual ? "Medicare and Medicaid need" : "Medicare needs"} to see for RTM billing — active days, clinician time, patient communication — automatically.
@@ -1042,8 +1240,12 @@ export default function ROICalculator() {
           </div>
           <div style={{fontSize:11,opacity:0.65,marginTop:6}}>— Clinician-owner, adult practice, FL</div>
         </div>
+        {!isTableMode && (
+          <div style={{background:"#fff",borderRadius:12,padding:8,marginBottom:20,textAlign:"left"}}>
+            <CalendlyInline name={lead.firstName} email={lead.email} height={620} />
+          </div>
+        )}
         <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20,justifyContent:"center"}}>
-          <button onClick={() => window.open(BOOKING_URL,"_blank")} style={{background:"#fff",color:BRAND,border:"none",borderRadius:10,padding:"12px 24px",fontSize:14,fontWeight:700,cursor:"pointer"}}>Book a conversation →</button>
           <button onClick={() => window.open("https://indiaide.com","_blank")} style={{background:"transparent",color:"#fff",border:"2px solid rgba(255,255,255,0.32)",borderRadius:10,padding:"12px 24px",fontSize:14,fontWeight:500,cursor:"pointer"}}>Learn more</button>
         </div>
         <div style={{display:"flex",gap:20,flexWrap:"wrap",borderTop:"1px solid rgba(255,255,255,0.15)",paddingTop:16,justifyContent:"center"}}>
@@ -1065,6 +1267,8 @@ export default function ROICalculator() {
         IndiAide qualifies as Software as a Medical Device (SaMD) — no physical device or DME required.
         Actual reimbursement varies by payer mix, patient eligibility, and clinical documentation. For informational purposes only.
       </p>
+
+      </>}
 
     </div>
     </div>
