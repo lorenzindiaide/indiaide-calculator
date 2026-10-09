@@ -334,6 +334,23 @@ function QuoteCard({ figure, text, source }) {
   );
 }
 
+// Fee-schedule scope callout — shown on BOTH the palooza/table compact view and the
+// regular full-breakdown view, right under the header, before any dollar figures.
+// Important because partial/non-covered Medicaid states can show $0 or negative
+// numbers in the breakdown below, which this note explains up front.
+function FeeScheduleNote() {
+  return (
+    <div style={{margin:"0 0 18px",padding:"12px 14px",background:AMBER_LIGHT,borderRadius:8,border:`1px solid ${AMBER}33`,textAlign:"left"}}>
+      <p style={{margin:0,fontSize:11,color:"#92400E",lineHeight:1.6}}>
+        <strong>NOTE:</strong> These results are specific to publicly available Physician Fee Schedules for Medicare and
+        Medicaid only. Commercial payers often reimburse within a few dollars higher or lower than Medicare. If your state
+        doesn't reimburse for Medicaid, adjust the Medicare numbers below as a reference point, then check your commercial
+        contract fee schedules for their rates. The code range to search for is <strong>98975-98986</strong>.
+      </p>
+    </div>
+  );
+}
+
 // ─── Gate screen — shown before the calculator ────────────────────────────────
 const ROLES = [
   "Speech-Language Pathologist (SLP)",
@@ -798,20 +815,18 @@ export default function ROICalculator() {
       <GateScreen source={source} onSubmit={data => {
         setLead(data);
         setStateCode(data.state);
-        // Only treat the fields as "given" if the prospect actually typed something —
-        // someone who leaves both blank still gets the 200/50 starting point. But once
-        // either field has real input (including an explicit 0), trust it completely:
-        // an explicit 0 should zero out that payer, not fall back to the defaults.
-        const adultsGiven = data.adultPatients.trim() !== "";
-        const pedsGiven    = data.pediatricPatients.trim() !== "";
-        if (adultsGiven || pedsGiven) {
-          const adults = parseInt(data.adultPatients, 10) || 0;
-          const peds   = parseInt(data.pediatricPatients, 10) || 0;
-          setAdultPatients(adults);
-          setPediatricPatients(peds);
-          setMcCount(Math.round(adults * adultsMcPct / 100));
-          setMdCount(Math.round(adults * adultsMdPct / 100 + peds * pedsMdPct / 100));
-        }
+        // Always derive Medicare/Medicaid counts strictly from what the prospect
+        // entered — a blank field means 0 of that population, full stop. (Previously,
+        // leaving BOTH fields blank silently kept the 200/50 placeholder defaults,
+        // which showed Medicare revenue even for practices that are 100% pediatric
+        // and simply skipped the optional patient-count fields. The Medicare/Medicaid
+        // boxes on the results screen remain freely editable either way.)
+        const adults = parseInt(data.adultPatients, 10) || 0;
+        const peds   = parseInt(data.pediatricPatients, 10) || 0;
+        setAdultPatients(adults);
+        setPediatricPatients(peds);
+        setMcCount(Math.round(adults * adultsMcPct / 100));
+        setMdCount(Math.round(adults * adultsMdPct / 100 + peds * pedsMdPct / 100));
       }} />
     );
   }
@@ -851,6 +866,8 @@ export default function ROICalculator() {
           )}
         </div>
       )}
+
+      <FeeScheduleNote />
 
       {/* ── Compact summary (conference table view) ─────────────────────────── */}
       {isTableMode && (
