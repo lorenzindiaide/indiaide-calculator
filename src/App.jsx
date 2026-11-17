@@ -81,56 +81,76 @@ const isDualState = s => s.m77 !== undefined;
 const DUAL_LIST   = Object.entries(ALL_STATES).filter(([,d]) => isDualState(d)).map(([c,d]) => [c, d.name]).sort((a,b) => a[1].localeCompare(b[1]));
 const SINGLE_LIST = Object.entries(ALL_STATES).filter(([,d]) => !isDualState(d)).map(([c,d]) => [c, d.name]).sort((a,b) => a[1].localeCompare(b[1]));
 
-// ─── IndiAide Tiered Pricing ──────────────────────────────────────────────────
-const PRICING = [
-  { max:200,    rate:20, label:"< 200" },
-  { max:500,    rate:17, label:"201–500" },
-  { max:1000,   rate:14, label:"501–1,000" },
-  { max:2500,   rate:11, label:"1,001–2,500" },
-  { max:4500,   rate: 9, label:"2,501–4,500" },
-  { max:999999, rate: 7, label:"4,501+" },
-];
-const getIndiRate  = n => (PRICING.find(t => n <= t.max) || PRICING.at(-1)).rate;
-const getIndiLabel = n => (PRICING.find(t => n <= t.max) || PRICING.at(-1)).label;
+// ─── IndiAide pricing — edit here when prices change ──────────────────────────
+const PRICING = {
+  clinicianMonthly:  29,   // $ per clinician per month (monthly plan)
+  clinicianAnnual:   290,  // $ per clinician per year, prepaid (12 months for the price of 10)
+  rtmPatientMonthly: 20,   // $ per RTM patient per month with 2+ active days
+  customProposalAt:  10,   // clinicians at or above this get a custom proposal, not a price
+};
 
-// ─── Model assumptions ────────────────────────────────────────────────────────
-const DEVICE_BILL_PCT    = 0.50;
-const CLINICIAN_BILL_PCT = 0.50;
+// ─── Default RTM assumptions — % of the practice's Medicare/Medicaid patients ──
+// All are editable on the results screen. Code % values are capped at the
+// engaged % in the math, since a patient must be engaged in RTM to bill any code.
+const DEFAULTS = {
+  engagedPct:   50,  // patients with 2+ active days a month → IndiAide $20 fee applies
+  setupPct:     50,  // 98975 setup & education (one-time per episode of care)
+  devicePct:    25,  // 98985 / 98977 device supply
+  clinicianPct: 50,  // clinician time codes (98979 / 98980 / 98981)
+  minutes:      20,  // clinician minutes per patient per month
+};
 
-const ADOPTION = [
-  { key:"low",  pct:0.25, label:"25%", desc:"Conservative" },
-  { key:"mid",  pct:0.50, label:"50%", desc:"Expected" },
-  { key:"high", pct:0.75, label:"75%", desc:"Optimistic" },
-];
+const has = v => v !== null && v !== undefined;
 
-const CLINICIAN = [
-  { key:"low",  label:"10 min",  desc:"98979",       codeStr:"98979" },
-  { key:"mid",  label:"20 min",  desc:"98980",       codeStr:"98980" },
-  { key:"high", label:"40+ min", desc:"98980+98981", codeStr:"98980+98981" },
-];
+// Which clinician-time codes a given number of minutes per month supports.
+// 10–19 → 98979 · 20–39 → 98980 · 40+ → 98980 + 98981 per additional 20 min.
+function clinicianCodesFor(minutes) {
+  if (minutes >= 40) return { tier:"high", units81: Math.floor((minutes - 20) / 20) };
+  if (minutes >= 20) return { tier:"mid",  units81: 0 };
+  if (minutes >= 10) return { tier:"low",  units81: 0 };
+  return null;
+}
 
-// Given the clinician-time tier selected (which reflects actual time delivered),
-// finds the highest Medicaid-billable tier for that state — falling back to a
-// LOWER tier only, since you can always bill for less time than you spent but
-// never claim more. Returns null if the state's Medicaid covers nothing at
-// or below the selected tier.
-function resolveMdTier(tierKey, s) {
-  const cascade = tierKey === "high" ? ["high","mid","low"] : tierKey === "mid" ? ["mid","low"] : ["low"];
-  for (const key of cascade) {
-    if (key === "high" && s.m80 !== null && s.m81 !== null) return { key, rate: s.m80 + s.m81, codeStr: "98980+98981" };
-    if (key === "mid"  && s.m80 !== null)                    return { key, rate: s.m80,         codeStr: "98980" };
-    if (key === "low"  && s.m79 !== null)                    return { key, rate: s.m79,          codeStr: "98979" };
+function codeStrFor(c) {
+  if (!c) return "None";
+  if (c.tier === "low") return "98979";
+  if (c.tier === "mid") return "98980";
+  return c.units81 > 1 ? `98980 + 98981 ×${c.units81}` : "98980 + 98981";
+}
+
+// Resolves the clinician-time codes billable for a payer ("r" = Medicare, "m" = Medicaid).
+// Falls back to a LOWER code only — you can bill for less time than spent, never more.
+// Returns null when nothing is billable at or below the minutes entered.
+function resolveClinician(minutes, s, p) {
+  const want = clinicianCodesFor(minutes);
+  if (!want) return null;
+  const c79 = s[`${p}79`], c80 = s[`${p}80`], c81 = s[`${p}81`];
+  if (want.tier === "high" && has(c80) && has(c81)) {
+    return { tier:"high", units81:want.units81, rate:c80 + want.units81 * c81, codeStr:codeStrFor(want), fallback:false };
+  }
+  if ((want.tier === "high" || want.tier === "mid") && has(c80)) {
+    return { tier:"mid", units81:0, rate:c80, codeStr:"98980", fallback: want.tier !== "mid" };
+  }
+  if (has(c79)) {
+    return { tier:"low", units81:0, rate:c79, codeStr:"98979", fallback: want.tier !== "low" };
   }
   return null;
 }
 
 // ─── Billing detail copy ──────────────────────────────────────────────────────
 const BILLING_INFO = {
+  setup:{
+    title:"When is 98975 billed?",
+    items:[
+      { label:"What",       text:"Initial setup and patient education on using the IndiAide app." },
+      { label:"Frequency",  text:"Once per episode of care. Shown here as a one-time amount, counted in Year 1." },
+    ],
+  },
   device:{
-    title:"When is this billed?",
+    title:"When is device supply billed?",
     items:[
       { label:"Trigger",    text:"Patient has 2–30 active days on the IndiAide app in a 30-day period." },
-      { label:"Which code", text:"98985 for 2–15 days · 98977 for 16–30 days. Only one code per 30-day period." },
+      { label:"Which code", text:"98985 for 2–15 days · 98977 for 16–30 days. Only one per 30-day period. 2026 Medicare pays both at the same rate." },
       { label:"Tracked by", text:"\"Active Days\" column in the IndiAide dashboard — updated automatically." },
       { label:"Note",       text:"IndiAide qualifies as Software as a Medical Device (SaMD). No physical device or DME required." },
     ],
@@ -154,17 +174,22 @@ const BILLING_INFO = {
   clinician_high:{
     title:"When are 98980 + 98981 billed?",
     items:[
-      { label:"Trigger",    text:"40+ minutes of management time in IndiAide + at least 1 interactive communication. 98981 always billed in addition to 98980." },
+      { label:"Trigger",    text:"40+ minutes of management time in IndiAide + at least 1 interactive communication. 98981 is always billed in addition to 98980." },
       { label:"Stacking",   text:"40–59 min = 98981 ×1 · 60–79 min = 98981 ×2 · 80–99 min = 98981 ×3. Each additional 20-min block adds another 98981." },
-      { label:"Tracked by", text:"\"Clinician Time\" column in IndiAide. Calculator assumes 98981 ×1 (one additional 20-min block)." },
+      { label:"Tracked by", text:"\"Clinician Time\" column in IndiAide. Units here follow the minutes you enter." },
     ],
   },
 };
 
-// ─── Formatters ───────────────────────────────────────────────────────────────
-const fmt  = n => new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(Math.max(0,n));
-const fmtK = n => n >= 100000 ? `$${(n/1000).toFixed(0)}K` : fmt(n);
+// ─── Formatters — negatives are shown, never clamped to $0 ────────────────────
+const usd0 = new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0});
+const usd2 = new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt  = n => { const v = Math.round(n); return (v < 0 ? "−" : "") + usd0.format(Math.abs(v)); };
+const fmtC = n => usd2.format(n);   // rates, with cents
+const fmtK = n => Math.abs(n) >= 100000 ? `${n < 0 ? "−" : ""}$${(Math.abs(n)/1000).toFixed(0)}K` : fmt(n);
 const fmtN = n => Math.round(n).toLocaleString();
+const RED  = "#DC2626";
+const netColor = n => (Math.round(n) < 0 ? RED : GREEN);
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -274,7 +299,7 @@ function CalendlyInline({ name, email, height = 620 }) {
 
   if (failed) {
     return (
-      <div style={{minWidth:280, minHeight:120, width:"100%", display:"flex", flexDirection:"column",
+      <div style={{minWidth:0, minHeight:120, width:"100%", boxSizing:"border-box", display:"flex", flexDirection:"column",
         alignItems:"center", justifyContent:"center", gap:10, padding:20, textAlign:"center"}}>
         <div style={{fontSize:13, color:"#64748B"}}>Scheduling widget couldn't load — often an ad blocker or network filter.</div>
         <button onClick={() => window.open(`${BOOKING_URL}?name=${encodeURIComponent(name || "")}&email=${encodeURIComponent(email || "")}`, "_blank")} style={{background:BRAND, color:"#fff", border:"none",
@@ -285,7 +310,7 @@ function CalendlyInline({ name, email, height = 620 }) {
     );
   }
 
-  return <div ref={containerRef} style={{minWidth:280, height, width:"100%"}} />;
+  return <div ref={containerRef} style={{minWidth:0, height, width:"100%"}} />;
 }
 
 function CodeBadge({ code, color, bg }) {
@@ -395,7 +420,7 @@ function GateScreen({ onSubmit, source }) {
     if (!state)           e.state    = "Required";
     if (!role)            e.role     = "Required";
     if (!disciplines.length)    e.disciplines    = "Select at least one";
-    if (!clinicianCount)        e.clinicianCount = "Required";
+    if (!(parseInt(clinicianCount, 10) >= 1)) e.clinicianCount = "Enter a number (1 or more)";
     if (!privatePayShare)       e.privatePayShare = "Required";
     return e;
   }
@@ -407,10 +432,15 @@ function GateScreen({ onSubmit, source }) {
     const payload = {
       firstName:firstName.trim(), lastName:lastName.trim(), email:email.trim(), phone:phone.trim(), practice:practice.trim(), state, role,
       adultPatients: adultPatients.trim(), pediatricPatients: pediatricPatients.trim(),
-      source, disciplines: disciplines.join(", "), clinicianCount, privatePayShare, fixFirst: fixFirst.trim(),
+      source, disciplines: disciplines.join(", "), clinicianCount: String(parseInt(clinicianCount, 10)), privatePayShare, fixFirst: fixFirst.trim(),
       submittedAt: new Date().toISOString(),
     };
-    if (LEAD_WEBHOOK_URL) {
+    // Vercel preview deployments (any *.vercel.app host other than production) skip the
+    // webhook, so test submissions on a preview link don't land in the live Sheet → Zapier →
+    // Systeme.io pipeline and trigger follow-up emails. Production and custom domains are unaffected.
+    const host = window.location.hostname;
+    const isPreview = host.endsWith(".vercel.app") && host !== "indiaide-calculator.vercel.app";
+    if (LEAD_WEBHOOK_URL && !isPreview) {
       try {
         const params = new URLSearchParams(payload).toString();
         new Image().src = `${LEAD_WEBHOOK_URL}?${params}`;
@@ -433,10 +463,10 @@ function GateScreen({ onSubmit, source }) {
           <img src="/indiaide-animation.svg" alt="IndiAide" style={{width:320,marginBottom:12,cursor:"pointer"}} />
         </a>
         <div style={{fontSize:22,fontWeight:800,color:BRAND,textTransform:"uppercase",letterSpacing:"0.14em",marginBottom:10}}>
-          RTM Revenue Calculator
+          RTM ROI Calculator
         </div>
         <h1 style={{margin:0,fontSize:26,fontWeight:800,color:"#0F172A",lineHeight:1.25,maxWidth:400}}>
-          See your personalized RTM revenue estimate
+          See your estimated RTM return
         </h1>
         <p style={{margin:"10px 0 0",fontSize:13,color:"#64748B",lineHeight:1.6,maxWidth:380}}>
           Based on 2026 Medicare CMS rates for your state — and Medicaid where it applies.
@@ -554,11 +584,9 @@ function GateScreen({ onSubmit, source }) {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
           <div>
             {fieldLabel("Number of Clinicians", "clinicianCount")}
-            <select value={clinicianCount} onChange={e => { setClinicianCount(e.target.value); setErrors(p=>({...p,clinicianCount:""})); }}
-              style={{...inputStyle("clinicianCount"),color:clinicianCount?"#0F172A":"#94A3B8"}}>
-              <option value="" disabled>Select</option>
-              {["1","2-4","5-9","10-24","25-49","50+"].map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
+            <input type="number" inputMode="numeric" min={1} max={999} value={clinicianCount}
+              onChange={e => { setClinicianCount(e.target.value); setErrors(p=>({...p,clinicianCount:""})); }}
+              placeholder="e.g. 4" style={inputStyle("clinicianCount")} />
             {errors.clinicianCount && <div style={{fontSize:10,color:"#EF4444",marginTop:3}}>{errors.clinicianCount}</div>}
           </div>
           <div>
@@ -586,15 +614,15 @@ function GateScreen({ onSubmit, source }) {
           fontSize:15, fontWeight:700, cursor:loading?"wait":"pointer",
           boxShadow:`0 4px 16px ${BRAND}44`, transition:"background 0.15s",
         }}>
-          {loading ? "Calculating…" : "Calculate My Revenue →"}
+          {loading ? "Calculating…" : "Calculate my estimate"}
         </button>
 
         <p style={{margin:"14px 0 0",fontSize:11,color:"#94A3B8",textAlign:"center",lineHeight:1.6}}>
           We'll use this to personalize your estimate and may follow up with resources specific to your state and discipline. No spam, ever.
         </p>
         <p style={{margin:"8px 0 0",fontSize:10,color:"#94A3B8",textAlign:"center",lineHeight:1.6}}>
-          Estimate uses publicly available Medicare and Medicaid fee schedules. Commercial payers typically reimburse at or above these rates,
-          so your actual opportunity may be higher than shown.
+          Estimate uses publicly available 2026 Medicare and Medicaid fee schedules. Commercial rates vary by contract.
+          Estimates only; reimbursement is not guaranteed.
         </p>
       </div>
 
@@ -605,54 +633,77 @@ function GateScreen({ onSubmit, source }) {
   );
 }
 
-// Single payer revenue column (used in the two-column dual layout)
-function PayerCol({ label, color, bg, totalCount, activePts, devPts, devRate, devRev, devUncovered, devNote, clinPts, clinRate, clinRev, clinUncovered, clinNote, clinFallbackNote, codeStr, monthly, annual, setup }) {
+// Small % input used in the assumptions panel. 16px font stops iOS from zooming on focus.
+function PctInput({ value, onChange, label }) {
   return (
-    <div style={{flex:1,minWidth:0}}>
-      <div style={{display:"inline-flex",alignItems:"center",gap:6,background:bg,borderRadius:6,padding:"3px 10px",marginBottom:12}}>
-        <div style={{width:7,height:7,borderRadius:"50%",background:color}} />
-        <span style={{fontSize:11,fontWeight:700,color}}>{label}</span>
-        <span style={{fontSize:10,color,opacity:0.7}}>{fmtN(totalCount)} patients</span>
-      </div>
-      {/* Device supply */}
-      <div style={{marginBottom:10}}>
-        <div style={{fontSize:11,fontWeight:600,color:"#334155",marginBottom:2,textAlign:"center"}}>Device Supply</div>
-        {devUncovered
-          ? <div style={{fontSize:11,color:"#94A3B8",fontStyle:"italic",lineHeight:1.4}}>{devNote}</div>
-          : <>
-              <div style={{fontSize:11,color:"#94A3B8",marginBottom:3}}>{fmtN(devPts)} pts × {fmt(devRate)} · 50% of active</div>
-              <div style={{fontSize:15,fontWeight:800,color}}>{fmt(devRev)}</div>
-            </>
-        }
-      </div>
-      {/* Clinician time */}
-      <div style={{marginBottom:12,paddingBottom:12,borderBottom:"1px dashed #E2E8F0"}}>
-        <div style={{fontSize:11,fontWeight:600,color:"#334155",marginBottom:2,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-          Clinician Time
-          <CodeBadge code={codeStr} color={color} bg={bg} />
+    <div style={{display:"flex",alignItems:"center",gap:4,justifyContent:"flex-end"}}>
+      <input type="number" inputMode="numeric" min={0} max={100} step={5} value={value} aria-label={label}
+        onChange={e => onChange(Math.max(0, Math.min(100, parseInt(e.target.value,10) || 0)))}
+        style={{width:68,padding:"7px 8px",border:"1.5px solid #E2E8F0",borderRadius:8,fontSize:16,fontWeight:700,
+          color:"#0F172A",textAlign:"right",boxSizing:"border-box",background:"#fff",colorScheme:"light"}} />
+      <span style={{fontSize:13,color:SLATE}}>%</span>
+    </div>
+  );
+}
+
+const sectionTitle = { fontSize:15, fontWeight:700, color:"#0F172A", margin:0 };
+const sectionSub   = { fontSize:12, color:"#64748B", marginTop:3, lineHeight:1.5 };
+const numInput     = { width:"100%", padding:"10px 12px", borderRadius:8, fontSize:16, fontWeight:700, color:"#0F172A",
+                       boxSizing:"border-box", background:"#fff", colorScheme:"light" };
+
+// One payer's per-code breakdown (Medicare or Medicaid), stacked so it reads well on mobile.
+function PayerBreakdown({ label, color, bg, P, stateName, expandedCode, setExpandedCode, idPrefix }) {
+  const row = (key, badge, name, detail, amount, sub, note, info) => (
+    <div key={key} style={{padding:"11px 0",borderBottom:"1px solid #F1F5F9"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",flexWrap:"wrap",marginBottom:3}}>
+            <CodeBadge code={badge} color={color} bg={bg} />
+            <span style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>{name}</span>
+          </div>
+          {note
+            ? <div style={{fontSize:11,color:"#94A3B8",fontStyle:"italic",lineHeight:1.4}}>{note}</div>
+            : <div style={{fontSize:11,color:"#94A3B8"}}>{detail}</div>}
+          {P.clinFallbackNote && key === "clin" && !note && (
+            <div style={{fontSize:10,color:AMBER,fontStyle:"italic",marginTop:3,lineHeight:1.3}}>{P.clinFallbackNote}</div>
+          )}
+          {info && <BillingDetail id={`${idPrefix}-${key}`} open={expandedCode} onToggle={setExpandedCode} info={info} />}
         </div>
-        {clinUncovered
-          ? <div style={{fontSize:11,color:"#94A3B8",fontStyle:"italic",lineHeight:1.4}}>{clinNote}</div>
-          : <>
-              <div style={{fontSize:11,color:"#94A3B8",marginBottom:3}}>{fmtN(clinPts)} pts × {fmt(clinRate)} · 50% of active</div>
-              <div style={{fontSize:15,fontWeight:800,color}}>{fmt(clinRev)}</div>
-              {clinFallbackNote && <div style={{fontSize:10,color:AMBER,fontStyle:"italic",marginTop:3,lineHeight:1.3}}>{clinFallbackNote}</div>}
-            </>
-        }
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <div style={{fontSize:15,fontWeight:800,color: note ? "#CBD5E1" : color}}>{fmt(amount)}</div>
+          <div style={{fontSize:10,color:"#94A3B8"}}>{sub}</div>
+        </div>
       </div>
-      {/* Subtotals */}
-      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-        <span style={{fontSize:11,color:"#64748B"}}>Monthly</span>
-        <span style={{fontSize:13,fontWeight:800,color}}>{fmt(monthly)}</span>
+    </div>
+  );
+
+  return (
+    <div style={{marginBottom:18}}>
+      <div style={{display:"inline-flex",alignItems:"center",gap:6,background:bg,borderRadius:6,padding:"3px 10px",marginBottom:4}}>
+        <div style={{width:7,height:7,borderRadius:"50%",background:color}} />
+        <span style={{fontSize:12,fontWeight:700,color}}>{label}</span>
+        <span style={{fontSize:11,color,opacity:0.75}}>{fmtN(P.count)} patients · {fmtN(P.engagedPts)} engaged</span>
       </div>
-      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-        <span style={{fontSize:11,color:"#64748B"}}>Annual</span>
-        <span style={{fontSize:12,fontWeight:600,color:"#334155"}}>{fmtK(annual)}</span>
+
+      {row("dev", "98985 / 98977", "Device supply",
+        `${fmtN(P.devPts)} patients × ${fmtC(P.devRate || 0)}`, P.devRev, "per month",
+        P.devCovered ? null : `98985/98977 not reimbursed under ${stateName} ${label}.`, BILLING_INFO.device)}
+
+      {row("clin", P.clin ? P.clin.codeStr : (P.wantStr === "None" ? "98979–98981" : P.wantStr), "Clinician time",
+        `${fmtN(P.clinPts)} patients × ${fmtC(P.clin ? P.clin.rate : 0)}`, P.clinRev, "per month",
+        P.clin ? null : (P.wantStr === "None"
+          ? "Under 10 minutes a month doesn't meet any clinician-time code."
+          : `${P.wantStr} not reimbursed under ${stateName} ${label}.`),
+        P.clin ? BILLING_INFO[`clinician_${P.clin.tier}`] : null)}
+
+      <div style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"1px solid #F1F5F9"}}>
+        <span style={{fontSize:12,fontWeight:600,color:"#334155"}}>{label} monthly</span>
+        <span style={{fontSize:14,fontWeight:800,color}}>{fmt(P.monthly)}</span>
       </div>
-      <div style={{display:"flex",justifyContent:"space-between"}}>
-        <span style={{fontSize:11,color:"#64748B"}}>Year 1 setup</span>
-        <span style={{fontSize:11,color:AMBER,fontWeight:600}}>+{fmt(setup)}</span>
-      </div>
+
+      {row("setup", "98975", "Setup & education",
+        `${fmtN(P.setupPts)} patients × ${fmtC(P.setupRate || 0)}`, P.setupRev, "one-time",
+        P.setupCovered ? null : `98975 not reimbursed under ${stateName} ${label}.`, BILLING_INFO.setup)}
     </div>
   );
 }
@@ -663,25 +714,32 @@ export default function ROICalculator() {
   const [mcCount,      setMcCount]      = useState(200);
   const [mdCount,      setMdCount]      = useState(50);
   const [stateCode,    setStateCode]    = useState("TX");
-  const [adoptionKey,  setAdoptionKey]  = useState("mid");
-  const [clinicianKey, setClinicianKey] = useState("mid");
   const [expandedCode, setExpandedCode] = useState(null);
+
+  // Editable RTM assumptions (see DEFAULTS)
+  const [engagedPct,   setEngagedPct]   = useState(DEFAULTS.engagedPct);
+  const [setupPct,     setSetupPct]     = useState(DEFAULTS.setupPct);
+  const [devicePct,    setDevicePct]    = useState(DEFAULTS.devicePct);
+  const [clinicianPct, setClinicianPct] = useState(DEFAULTS.clinicianPct);
+  const [minutes,      setMinutes]      = useState(DEFAULTS.minutes);
+
+  // IndiAide software inputs
+  const [clinicians, setClinicians] = useState(1);
+  const [plan,       setPlan]       = useState("monthly");  // "monthly" | "annual"
 
   // Raw monthly patient counts from the gate form (0 if left blank there)
   const [adultPatients,     setAdultPatients]     = useState(0);
   const [pediatricPatients, setPediatricPatients] = useState(0);
 
-  // Payer-mix % used to derive the Medicare/Medicaid boxes above from the raw counts.
-  // NOTE: these three defaults are placeholders, not real market data — swap in
-  // your actual SLP/OT payer-mix figures when you have them. They only affect the
-  // pre-fill; the Medicare/Medicaid boxes remain freely editable either way.
+  // Payer-mix % used to derive the Medicare/Medicaid boxes from the raw counts.
+  // NOTE: these three defaults are placeholders, not real market data. They only
+  // affect the pre-fill; the Medicare/Medicaid boxes remain freely editable.
   const [adultsMcPct, setAdultsMcPct] = useState(50);  // % of adult patients on Medicare
   const [adultsMdPct, setAdultsMdPct] = useState(20);  // % of adult patients on Medicaid
   const [pedsMdPct,   setPedsMdPct]   = useState(55);  // % of pediatric patients on Medicaid
 
-  // Conference/embed routing — read once from the URL. source defaults to "website"
-  // when absent (the existing rtm-calculator page); mode=table triggers the compact
-  // laptop/tablet view used at the conference table.
+  // Conference/embed routing — read once from the URL. source defaults to "website";
+  // mode=table triggers the compact laptop/tablet view used at the conference table.
   const source      = useMemo(() => new URLSearchParams(window.location.search).get("source") || "website", []);
   const isTableMode = useMemo(() => new URLSearchParams(window.location.search).get("mode") === "table", []);
   const [expanded, setExpanded] = useState(false); // "See full breakdown" toggle in compact view
@@ -689,113 +747,91 @@ export default function ROICalculator() {
   const s    = ALL_STATES[stateCode] || ALL_STATES["TX"];
   const dual = isDualState(s);
 
-  // Builds an accurate Medicaid coverage footnote for ANY partial-coverage pattern
-  // (not just the 98979-only case) — covers states like DC/OR (only 98979 billable),
-  // NE (only 98975 billable), UT (only 98980/98981 billable), etc.
+  // Medicaid coverage footnote for any partial-coverage pattern.
   const mdCoverageNote = useMemo(() => {
     if (!dual) return null;
-    const codeLabels = { r75:"98975", r77:"98977", r79:"98979", r80:"98980", r81:"98981" };
-    const uncovered = Object.entries(codeLabels).filter(([k]) => s[`m${k.slice(1)}`] === null).map(([,v]) => v);
+    const codeLabels = { "75":"98975", "77":"98977/98985", "79":"98979", "80":"98980", "81":"98981" };
+    const uncovered = Object.entries(codeLabels).filter(([k]) => s[`m${k}`] === null).map(([,v]) => v);
     if (uncovered.length === 0) return null;
-    const covered = Object.entries(codeLabels).filter(([k]) => s[`m${k.slice(1)}`] !== null).map(([,v]) => v);
-    const uncoveredStr = uncovered.join(", ");
+    const covered = Object.entries(codeLabels).filter(([k]) => s[`m${k}`] !== null).map(([,v]) => v);
     const coveredStr = covered.length
       ? ` ${covered.join(", ")} ${covered.length === 1 ? "remains" : "remain"} billable.`
       : " No RTM codes are separately reimbursed by Medicaid in this state.";
-    return ` ${s.name} Medicaid does not separately reimburse ${uncoveredStr}.${coveredStr}`;
+    return ` ${s.name} Medicaid does not separately reimburse ${uncovered.join(", ")}.${coveredStr}`;
   }, [dual, s]);
 
   const C = useMemo(() => {
-    const adoption = ADOPTION.find(a => a.key === adoptionKey).pct;
+    const engaged = Math.max(0, Math.min(100, engagedPct)) / 100;
+    // A code can't be billed for more patients than are engaged in RTM
+    const eff = v => Math.min(Math.max(0, Math.min(100, v)) / 100, engaged);
+    const want = clinicianCodesFor(minutes);
+    const wantStr = codeStrFor(want);
 
-    // Medicare
-    const mcActive  = Math.round(mcCount * adoption);
-    const mcDevPts  = Math.round(mcActive * DEVICE_BILL_PCT);
-    const mcClinPts = Math.round(mcActive * CLINICIAN_BILL_PCT);
-    const mcDevRev  = mcDevPts * s.r77;
-    const mcClinR   = clinicianKey==="low" ? s.r79 : clinicianKey==="mid" ? s.r80 : s.r80+s.r81;
-    const mcClinRev = mcClinPts * mcClinR;
-    const mcMonthly = mcDevRev + mcClinRev;
-    const mcAnnual  = mcMonthly * 12;
-    const mcSetup   = mcCount * s.r75;
-
-    // Medicaid (only if dual state, else zeros)
-    const mdActive  = dual ? Math.round(mdCount * adoption) : 0;
-    const mdDevPts  = Math.round(mdActive * DEVICE_BILL_PCT);
-    const mdClinPts = Math.round(mdActive * CLINICIAN_BILL_PCT);
-    const mdDevUncov  = dual && s.m77 === null;
-    const mdDevRev  = dual ? mdDevPts * s.m77 : 0;
-    const mdTier      = dual ? resolveMdTier(clinicianKey, s) : null;
-    const mdClinUncov = dual && mdTier === null;               // nothing billable at all, even with fallback
-    const mdClinFallback = dual && mdTier !== null && mdTier.key !== clinicianKey; // billing a lower tier than Medicare's selection
-    const mdClinR   = mdTier ? mdTier.rate : 0;
-    const mdClinRev = mdTier ? mdClinPts * mdTier.rate : 0;
-    const mdMonthly = mdDevRev + mdClinRev;
-    const mdAnnual  = mdMonthly * 12;
-    const mdSetup   = dual ? mdCount * s.m75 : 0;
-
-    // Note only shown when NOTHING is billable to Medicaid (no fallback tier exists either)
-    const mdClinUncovCodes = clinicianKey==="low" ? "98979" : clinicianKey==="mid" ? "98980" : "98980 and 98981";
-    const mdClinNote = `${mdClinUncovCodes} not reimbursed under ${s.name} Medicaid.`;
-    const mdDevNote  = `98977 not reimbursed under ${s.name} Medicaid.`;
-    // Shown when Medicaid bills a lower tier than Medicare (fallback happened)
-    const mcClinCodeStr = clinicianKey==="low" ? "98979" : clinicianKey==="mid" ? "98980" : "98980+98981";
-    const mdClinFallbackNote = mdClinFallback
-      ? `Billed as ${mdTier.codeStr} (${CLINICIAN.find(c=>c.key===mdTier.key).label}) — ${s.name} Medicaid doesn't reimburse ${mcClinCodeStr}.`
-      : null;
-
-    // Combined
-    const totalActive    = mcActive + mdActive;
-    const indiRate       = getIndiRate(totalActive);
-    const indiLabel      = getIndiLabel(totalActive);
-    const indiMonthly    = totalActive * indiRate;
-    const combMonthly    = mcMonthly + mdMonthly;
-    const combAnnual     = combMonthly * 12;
-    const combSetup      = mcSetup + mdSetup;
-    const year1Total     = combAnnual + combSetup;
-    const netMonthly     = combMonthly - indiMonthly;
-    const netAnnual      = combAnnual - indiMonthly * 12;
-    const roi            = indiMonthly > 0 ? Math.round(netMonthly / indiMonthly * 100) : 0;
-
-    return {
-      mcActive, mcDevPts, mcClinPts, mcClinR, mcDevRev, mcClinRev, mcMonthly, mcAnnual, mcSetup,
-      mdActive, mdDevPts, mdClinPts, mdClinR, mdClinRev, mdDevRev, mdMonthly, mdAnnual, mdSetup,
-      mdClinUncov, mdDevUncov, mdClinNote, mdDevNote,
-      mdTier, mdClinFallback, mdClinFallbackNote,
-      totalActive, indiRate, indiLabel, indiMonthly,
-      combMonthly, combAnnual, combSetup, year1Total,
-      netMonthly, netAnnual, roi,
+    const payer = (count, p, active) => {
+      if (!active) {
+        return { count:0, engagedPts:0, devPts:0, clinPts:0, setupPts:0, devRev:0, clinRev:0, setupRev:0,
+                 monthly:0, devCovered:false, setupCovered:false, clin:null, wantStr, clinFallbackNote:null };
+      }
+      const engagedPts = Math.round(count * engaged);
+      const devPts     = Math.round(count * eff(devicePct));
+      const clinPts    = Math.round(count * eff(clinicianPct));
+      const setupPts   = Math.round(count * eff(setupPct));
+      // 2026 Medicare pays 98985 and 98977 at the same rate, so the 98977 rate is used for both.
+      const devRate    = s[`${p}77`];
+      const setupRate  = s[`${p}75`];
+      const devCovered   = has(devRate);
+      const setupCovered = has(setupRate);
+      const clin       = resolveClinician(minutes, s, p);
+      const devRev     = devCovered ? devPts * devRate : 0;
+      const clinRev    = clin ? clinPts * clin.rate : 0;
+      const setupRev   = setupCovered ? setupPts * setupRate : 0;
+      const clinFallbackNote = clin && clin.fallback
+        ? `Billed as ${clin.codeStr} — ${s.name} ${p === "m" ? "Medicaid" : "Medicare"} doesn't reimburse ${wantStr}.`
+        : null;
+      return { count, engagedPts, devPts, clinPts, setupPts, devRate, setupRate, devCovered, setupCovered,
+               clin, wantStr, clinFallbackNote, devRev, clinRev, setupRev, monthly: devRev + clinRev };
     };
-  }, [mcCount, mdCount, stateCode, adoptionKey, clinicianKey, s, dual]);
 
-  // Comparison table rows
-  const compRows = useMemo(() => {
-    const adoption = ADOPTION.find(a => a.key === adoptionKey).pct;
-    const mcA  = Math.round(mcCount * adoption);
-    const mdA  = dual ? Math.round(mdCount * adoption) : 0;
-    const totA = mcA + mdA;
-    const iR   = getIndiRate(totA);
-    const mcD  = Math.round(mcA * DEVICE_BILL_PCT) * s.r77;
-    const mdD  = dual ? Math.round(mdA * DEVICE_BILL_PCT) * s.m77 : 0;
-    return CLINICIAN.map(sc => {
-      const mcCR  = sc.key==="low" ? s.r79 : sc.key==="mid" ? s.r80 : s.r80+s.r81;
-      const mdT   = dual ? resolveMdTier(sc.key, s) : null;
-      const mdCUncov   = dual && mdT === null;
-      const mdCFallback = dual && mdT !== null && mdT.key !== sc.key;
-      const mdCR = mdT ? mdT.rate : 0;
-      const mcMr = mcD + Math.round(mcA * CLINICIAN_BILL_PCT) * mcCR;
-      const mdMr = mdD + Math.round(mdA * CLINICIAN_BILL_PCT) * mdCR;
-      const mr   = mcMr + mdMr;
-      const ar   = mr * 12;
-      const net  = ar - iR * totA * 12;
-      const roi  = (iR * totA) > 0 ? Math.round((mr - iR*totA) / (iR*totA) * 100) : 0;
-      return { ...sc, mcMr, mdMr, mr, ar, net, roi, mdCUncov, mdCFallback, mdTierCodeStr: mdT ? mdT.codeStr : null };
-    });
-  }, [mcCount, mdCount, stateCode, adoptionKey, s, dual]);
+    const mc = payer(mcCount, "r", true);
+    const md = payer(mdCount, "m", dual);
 
-  const clin    = CLINICIAN.find(c => c.key === clinicianKey);
-  const billKey = `clinician_${clinicianKey}`;
-  const card    = { background:"#fff", borderRadius:16, border:"1px solid #E2E8F0", padding:24, marginBottom:16 };
+    // Reimbursement
+    const reimbMonthly = mc.monthly + md.monthly;
+    const setupTotal   = mc.setupRev + md.setupRev;          // one-time, counted in Year 1
+    const reimbYear1   = reimbMonthly * 12 + setupTotal;
+
+    // IndiAide software
+    const seats          = Math.max(0, clinicians);
+    const custom         = seats >= PRICING.customProposalAt;
+    const engagedTotal   = mc.engagedPts + md.engagedPts;
+    const rtmMonthly     = engagedTotal * PRICING.rtmPatientMonthly;
+    const seatMonthly    = seats * PRICING.clinicianMonthly;
+    const seatAnnual     = seats * PRICING.clinicianAnnual;
+    const seatYear       = plan === "annual" ? seatAnnual : seatMonthly * 12;
+    const softwareMonthly = (plan === "annual" ? seatAnnual / 12 : seatMonthly) + rtmMonthly; // per-month equivalent
+    const softwareYear   = seatYear + rtmMonthly * 12;
+    const upfront        = plan === "annual" ? seatAnnual : 0;
+    const ongoingMonthly = plan === "annual" ? rtmMonthly : seatMonthly + rtmMonthly;
+    const prepaidSavings = seats * (PRICING.clinicianMonthly * 12 - PRICING.clinicianAnnual);
+
+    // Net financial contribution (can be negative)
+    const netMonthly = reimbMonthly - softwareMonthly;
+    const netYear1   = reimbYear1 - softwareYear;
+
+    const capped = [setupPct, devicePct, clinicianPct].some(v => v > engagedPct);
+
+    return { mc, md, want, wantStr, reimbMonthly, setupTotal, reimbYear1,
+             seats, custom, engagedTotal, rtmMonthly, seatMonthly, seatAnnual, seatYear,
+             softwareMonthly, softwareYear, upfront, ongoingMonthly, prepaidSavings,
+             netMonthly, netYear1, capped };
+  }, [mcCount, mdCount, s, dual, engagedPct, setupPct, devicePct, clinicianPct, minutes, clinicians, plan]);
+
+  const card = { background:"#fff", borderRadius:16, border:"1px solid #E2E8F0", padding:"22px 20px", marginBottom:16 };
+  const totalPatients = mcCount + (dual ? mdCount : 0);
+  const resetAssumptions = () => {
+    setEngagedPct(DEFAULTS.engagedPct); setSetupPct(DEFAULTS.setupPct); setDevicePct(DEFAULTS.devicePct);
+    setClinicianPct(DEFAULTS.clinicianPct); setMinutes(DEFAULTS.minutes);
+  };
 
   // Auto-resize iframe height for embedding — must be before any conditional return
   useEffect(() => {
@@ -807,7 +843,7 @@ export default function ROICalculator() {
     const observer = new ResizeObserver(sendHeight);
     observer.observe(document.body);
     return () => observer.disconnect();
-  }, [lead, adoptionKey, clinicianKey, stateCode, expandedCode]);
+  }, [lead, stateCode, expandedCode, expanded]);
 
   // Gate check — all hooks above, conditional render below (rules of hooks compliant)
   if (!lead) {
@@ -815,12 +851,9 @@ export default function ROICalculator() {
       <GateScreen source={source} onSubmit={data => {
         setLead(data);
         setStateCode(data.state);
-        // Always derive Medicare/Medicaid counts strictly from what the prospect
-        // entered — a blank field means 0 of that population, full stop. (Previously,
-        // leaving BOTH fields blank silently kept the 200/50 placeholder defaults,
-        // which showed Medicare revenue even for practices that are 100% pediatric
-        // and simply skipped the optional patient-count fields. The Medicare/Medicaid
-        // boxes on the results screen remain freely editable either way.)
+        setClinicians(Math.max(1, parseInt(data.clinicianCount, 10) || 1));
+        // Derive Medicare/Medicaid counts strictly from what the prospect entered —
+        // a blank field means 0 of that population.
         const adults = parseInt(data.adultPatients, 10) || 0;
         const peds   = parseInt(data.pediatricPatients, 10) || 0;
         setAdultPatients(adults);
@@ -831,9 +864,25 @@ export default function ROICalculator() {
     );
   }
 
+  const assumptionRows = [
+    { key:"engaged", name:"Engaged in RTM", badge:null,     sub:"2+ active days a month · IndiAide $20 per patient applies", val:engagedPct,   set:setEngagedPct,   pts:C.engagedTotal },
+    { key:"setup",   name:"Setup & education", badge:"98975", sub:"One-time per episode of care",                           val:setupPct,     set:setSetupPct,     pts:C.mc.setupPts + C.md.setupPts },
+    { key:"device",  name:"Device supply", badge:"98985 / 98977", sub:"Engaged patients whose care qualifies for a device code (98985 for 2–15 days, 98977 for 16–30)",                val:devicePct,    set:setDevicePct,    pts:C.mc.devPts + C.md.devPts },
+    { key:"clin",    name:"Clinician time", badge:C.wantStr === "None" ? null : C.wantStr, sub:"Management time + 1 interactive communication", val:clinicianPct, set:setClinicianPct, pts:C.mc.clinPts + C.md.clinPts },
+  ];
+
+  const customBox = (
+    <div style={{padding:"14px 16px",background:BRAND_BG,border:`1px solid ${BRAND}33`,borderRadius:10}}>
+      <div style={{fontSize:14,fontWeight:700,color:BRAND}}>Get a Custom Practice Proposal</div>
+      <div style={{fontSize:12,color:"#475569",marginTop:4,lineHeight:1.5}}>
+        Practices with {PRICING.customProposalAt}+ clinicians receive custom pricing. Book a time below and we'll put together a proposal for {lead.practice}.
+      </div>
+    </div>
+  );
+
   return (
     <div style={{width:"100%",background:"#fff",colorScheme:"light"}}>
-    <div style={{fontFamily:"'Inter',sans-serif",width:"100%",maxWidth:860,margin:"0 auto",padding:"16px 24px",boxSizing:"border-box"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",width:"100%",maxWidth:860,margin:"0 auto",padding:"16px 16px",boxSizing:"border-box"}}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       {isTableMode ? (
@@ -841,29 +890,23 @@ export default function ROICalculator() {
           <div style={{fontSize:"clamp(24px,5vw,34px)",fontWeight:800,color:"#0F172A",lineHeight:1.15}}>{lead.practice}</div>
           <div style={{fontSize:"clamp(14px,3vw,18px)",fontWeight:600,color:BRAND,marginTop:4}}>{s.name}</div>
           <div style={{fontSize:"clamp(11px,2.5vw,13px)",fontWeight:600,color:"#64748B",marginTop:4}}>
-            {fmtN(adultPatients)} adult · {fmtN(pediatricPatients)} pediatric patients/month
+            {fmtN(adultPatients)} adult · {fmtN(pediatricPatients)} pediatric patients/month · {fmtN(C.seats)} clinician{C.seats === 1 ? "" : "s"}
           </div>
         </div>
       ) : (
         <div style={{textAlign:"center",padding:"20px 0 24px"}}>
-          <a href="https://calendly.com/indiaide-scheduling/30min" target="_blank" rel="noopener noreferrer">
-            <img src="/indiaide-animation.svg" alt="IndiAide" style={{width:320,marginBottom:12,cursor:"pointer"}} />
+          <a href={BOOKING_URL} target="_blank" rel="noopener noreferrer">
+            <img src="/indiaide-animation.svg" alt="IndiAide" style={{width:"min(320px, 80vw)",marginBottom:12,cursor:"pointer"}} />
           </a>
-          <div style={{fontSize:22,fontWeight:800,color:BRAND,textTransform:"uppercase",letterSpacing:"0.12em",marginBottom:8}}>
-            RTM Revenue Calculator
+          <div style={{fontSize:20,fontWeight:800,color:BRAND,letterSpacing:"0.02em",marginBottom:8}}>
+            RTM ROI Calculator
           </div>
-          <h1 style={{margin:0,fontSize:26,fontWeight:800,color:"#0F172A",lineHeight:1.25}}>
-            {lead.firstName}, here's your RTM revenue estimate
+          <h1 style={{margin:0,fontSize:"clamp(22px,5vw,26px)",fontWeight:800,color:"#0F172A",lineHeight:1.25}}>
+            {lead.firstName}, here's your estimated RTM return
           </h1>
-          <p style={{margin:"8px 0 0",fontSize:13,color:"#64748B",lineHeight:1.6,maxWidth:520,marginLeft:"auto",marginRight:"auto"}}>
-            For <strong>{lead.practice}</strong> · {lead.role}
-            {" "}· Based on 2026 Medicare CMS rates{dual ? " + Medicaid" : ""} for {s.name}.
+          <p style={{margin:"8px auto 0",fontSize:13,color:"#64748B",lineHeight:1.6,maxWidth:520}}>
+            For <strong>{lead.practice}</strong> · {lead.role} · Based on 2026 Medicare rates{dual ? " and Medicaid rates" : ""} for {s.name}.
           </p>
-          {dual && (
-            <div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:10,background:GREEN_LIGHT,border:"1px solid #D1FAE5",borderRadius:999,padding:"4px 12px"}}>
-              <span style={{color:GREEN,fontSize:11,fontWeight:700}}>✅ {s.name} Medicaid also reimburses RTM — both payers shown below</span>
-            </div>
-          )}
         </div>
       )}
 
@@ -872,16 +915,16 @@ export default function ROICalculator() {
       {/* ── Compact summary (conference table view) ─────────────────────────── */}
       {isTableMode && (
         <div style={{marginBottom:20}}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:16}}>
-            <BigKpi label="Monthly Conservative" value={fmt(C.combMonthly)} color={BRAND} inverted />
-            <BigKpi label="Annual Conservative"  value={fmtK(C.combAnnual)} color={BRAND} inverted />
-            <BigKpi label="Net Profit Monthly"   value={fmt(C.netMonthly)} color={GREEN} />
-            <BigKpi label="ROI"                  value={`${C.roi}%`} color={AMBER} />
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:12,marginBottom:14}}>
+            <BigKpi label="Est. reimbursement / mo" value={fmt(C.reimbMonthly)} color={BRAND} inverted />
+            <BigKpi label="IndiAide / mo" value={C.custom ? "Custom" : fmt(C.softwareMonthly)} color={SLATE} />
+            <BigKpi label="Est. net / mo" value={C.custom ? "—" : fmt(C.netMonthly)} color={C.custom ? SLATE : netColor(C.netMonthly)} />
+            <BigKpi label="Est. net, Year 1" value={C.custom ? "—" : fmtK(C.netYear1)} color={C.custom ? SLATE : netColor(C.netYear1)} />
           </div>
-          <div style={{textAlign:"center",marginBottom:18}}>
-            <div style={{fontSize:12,fontWeight:800,color:AMBER,textTransform:"uppercase",letterSpacing:"0.06em"}}>Year 1 Bonus — CPT 98975</div>
-            <div style={{fontSize:"clamp(24px,6vw,32px)",fontWeight:800,color:AMBER,marginTop:2}}>+ {fmt(C.combSetup)}</div>
+          <div style={{textAlign:"center",fontSize:13,color:"#475569",marginBottom:16}}>
+            Plus an estimated <strong>{fmt(C.setupTotal)}</strong> one-time setup reimbursement (98975), included in Year 1.
           </div>
+          {C.custom && <div style={{marginBottom:14}}>{customBox}</div>}
           <div style={{background:"#fff",borderRadius:12,padding:8,marginBottom:14}}>
             <CalendlyInline name={lead.firstName} email={lead.email} height={600} />
           </div>
@@ -890,12 +933,12 @@ export default function ROICalculator() {
               background:"transparent",border:"none",color:BRAND,fontSize:13,fontWeight:700,
               cursor:"pointer",textDecoration:"underline",padding:8,
             }}>
-              {expanded ? "Hide full breakdown ↑" : "See full breakdown ↓"}
+              {expanded ? "Hide full breakdown" : "See full breakdown and adjust assumptions"}
             </button>
           </div>
           {!expanded && (
             <p style={{textAlign:"center",fontSize:10,color:"#94A3B8",marginTop:10,lineHeight:1.6}}>
-              Estimate uses published Medicare{dual ? " and Medicaid" : ""} fee schedules for {s.name}. Actual reimbursement varies by payer mix and documentation. For informational purposes only.
+              Estimates only. Reimbursement depends on payer coverage, billing requirements and clinical circumstances, and is not guaranteed.
             </p>
           )}
         </div>
@@ -903,8 +946,10 @@ export default function ROICalculator() {
 
       {(!isTableMode || expanded) && <>
 
-      {/* ── Inputs ────────────────────────────────────────────────────────── */}
+      {/* ── Patients & state ──────────────────────────────────────────────── */}
       <div style={card}>
+        <h2 style={sectionTitle}>Your patients</h2>
+        <div style={{...sectionSub,marginBottom:14}}>Individual Medicare and Medicaid patients seen per month. Adjust to match your practice.</div>
 
         {(adultPatients>0 || pediatricPatients>0) && (
           <div style={{marginBottom:18,padding:"12px 14px",background:"#F8FAFC",borderRadius:8,border:"1px solid #E2E8F0"}}>
@@ -916,15 +961,12 @@ export default function ROICalculator() {
               { label:"Adults on Medicaid",   val:adultsMdPct, set:setAdultsMdPct },
               { label:"Pediatric on Medicaid",val:pedsMdPct,   set:setPedsMdPct   },
             ].map(({label,val,set}) => (
-              <div key={label} style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+              <div key={label} style={{display:"flex",alignItems:"center",gap:12,marginBottom:8,flexWrap:"wrap"}}>
                 <label style={{fontSize:13,color:"#64748B",minWidth:150}}>{label}</label>
                 <input type="range" min={0} max={100} step={1} value={val}
                   onChange={e => {
                     let pct = parseInt(e.target.value,10);
-                    // Adults on Medicare + Adults on Medicaid draw from the SAME adult pool —
-                    // they must share one 100% budget, or maxing both out double-counts adults
-                    // into ghost patients that don't exist. Pediatric has its own pool (no
-                    // Medicare eligibility), so it stays independent.
+                    // Adults on Medicare + Adults on Medicaid share one 100% adult pool.
                     let newAdultsMc = adultsMcPct, newAdultsMd = adultsMdPct;
                     if (label==="Adults on Medicare") {
                       newAdultsMc = pct;
@@ -941,7 +983,7 @@ export default function ROICalculator() {
                     setMcCount(Math.round(adultPatients * newAdultsMc / 100));
                     setMdCount(Math.round(adultPatients * newAdultsMd / 100 + pediatricPatients * newPedsMd / 100));
                   }}
-                  style={{flex:1}} />
+                  style={{flex:1,minWidth:120}} />
                 <span style={{fontSize:13,fontWeight:600,minWidth:34,textAlign:"right"}}>{val}%</span>
               </div>
             ))}
@@ -951,307 +993,244 @@ export default function ROICalculator() {
           </div>
         )}
 
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:18}}>
-          {/* Medicare patients */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:16}}>
           <div>
-            <label style={{display:"block",fontSize:12,fontWeight:600,color:BLUE,marginBottom:6}}>
-              Medicare Patients
-            </label>
-            <input type="number" min={0} max={999999} value={mcCount}
+            <label style={{display:"block",fontSize:12,fontWeight:600,color:BLUE,marginBottom:6}}>Medicare patients</label>
+            <input type="number" inputMode="numeric" min={0} max={999999} value={mcCount}
               onChange={e => setMcCount(Math.max(0,Math.min(999999,parseInt(e.target.value)||0)))}
-              style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${BLUE}44`,borderRadius:8,fontSize:16,fontWeight:700,color:"#0F172A",boxSizing:"border-box",background:"#fff",colorScheme:"light"}}
-            />
+              style={{...numInput,border:`1.5px solid ${BLUE}44`}} />
             <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>
-              {adultPatients>0 ? `${adultsMcPct}% of ${fmtN(adultPatients)} adults` : "Active Medicare caseload"}
+              {adultPatients>0 ? `${adultsMcPct}% of ${fmtN(adultPatients)} adults` : "Medicare caseload per month"}
             </div>
           </div>
-          {/* Medicaid patients */}
           <div>
-            <label style={{display:"block",fontSize:12,fontWeight:600,color:dual?GREEN:"#94A3B8",marginBottom:6}}>
-              Medicaid Patients
-            </label>
-            <input type="number" min={0} max={999999} value={mdCount}
+            <label style={{display:"block",fontSize:12,fontWeight:600,color:dual?GREEN:"#94A3B8",marginBottom:6}}>Medicaid patients</label>
+            <input type="number" inputMode="numeric" min={0} max={999999} value={mdCount} disabled={!dual}
               onChange={e => setMdCount(Math.max(0,Math.min(999999,parseInt(e.target.value)||0)))}
-              style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${dual?GREEN+"44":"#E2E8F0"}`,borderRadius:8,fontSize:16,fontWeight:700,color:dual?"#0F172A":"#94A3B8",boxSizing:"border-box",background:dual?"#fff":"#F8FAFC",colorScheme:"light"}}
-            />
+              style={{...numInput,border:`1.5px solid ${dual?GREEN+"44":"#E2E8F0"}`,color:dual?"#0F172A":"#94A3B8",background:dual?"#fff":"#F8FAFC"}} />
             <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>
               {!dual ? `Medicaid RTM not reimbursed in ${s.name}`
                 : (adultPatients>0||pediatricPatients>0)
                   ? `${fmtN(Math.round(adultPatients*adultsMdPct/100))} adult + ${fmtN(Math.round(pediatricPatients*pedsMdPct/100))} pediatric`
-                  : "Active Medicaid caseload"}
+                  : "Medicaid caseload per month"}
             </div>
           </div>
-          {/* State */}
           <div>
-            <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:6}}>
-              State of Practice
-            </label>
+            <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:6}}>State of practice</label>
             <select value={stateCode} onChange={e => setStateCode(e.target.value)}
-              style={{width:"100%",padding:"10px 12px",border:"1.5px solid #E2E8F0",borderRadius:8,fontSize:13,color:"#0F172A",boxSizing:"border-box",background:"#fff",colorScheme:"light"}}
-            >
-              <optgroup label={`✅ Medicare + Medicaid RTM (${DUAL_LIST.length} states)`}>
+              style={{...numInput,fontSize:14,fontWeight:500,border:"1.5px solid #E2E8F0"}}>
+              <optgroup label={`Medicare + Medicaid RTM (${DUAL_LIST.length} states)`}>
                 {DUAL_LIST.map(([c,n]) => <option key={c} value={c}>{n}</option>)}
               </optgroup>
-              <optgroup label="Medicare RTM Only">
+              <optgroup label="Medicare RTM only">
                 {SINGLE_LIST.map(([c,n]) => <option key={c} value={c}>{n}</option>)}
               </optgroup>
             </select>
             <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>
               {dual
                 ? (mdCoverageNote
-                    ? <span style={{color:AMBER,fontWeight:600}}>⚠️ Medicare + partial Medicaid RTM coverage in {s.name} · Q3 2026</span>
-                    : <span style={{color:GREEN,fontWeight:600}}>✅ Both Medicare &amp; Medicaid fully reimburse RTM in {s.name} · Q3 2026</span>)
-                : "Medicare RTM · 2026 CMS PFS rates"
-              }
+                    ? <span style={{color:AMBER,fontWeight:600}}>Medicare + partial Medicaid RTM coverage in {s.name}</span>
+                    : <span style={{color:GREEN,fontWeight:600}}>Medicare and Medicaid both reimburse RTM in {s.name}</span>)
+                : "Medicare RTM · 2026 CMS rates"}
             </div>
           </div>
         </div>
 
         {(() => {
           const totalPts = adultPatients + pediatricPatients;
-          const gap = totalPts - mcCount - mdCount;
+          const gap = totalPts - mcCount - (dual ? mdCount : 0);
           if (totalPts <= 0 || gap <= 0) return null;
           return (
-            <div style={{marginBottom:18,padding:"11px 13px",background:AMBER_LIGHT,borderRadius:8}}>
+            <div style={{marginTop:16,padding:"11px 13px",background:AMBER_LIGHT,borderRadius:8}}>
               <span style={{fontSize:12,color:"#92400E",lineHeight:1.55}}>
-                <strong>{fmtN(gap)} of your {fmtN(totalPts)} monthly patients are commercial.</strong>{" "}
-                Figures above use published Medicare and Medicaid fee schedules only — commercial payers frequently
-                reimburse at or above these rates, so your actual opportunity is likely higher.
+                <strong>{fmtN(gap)} of your {fmtN(totalPts)} monthly patients aren't included</strong> (commercial, private pay, or Medicaid where it doesn't reimburse RTM).
+                Commercial rates vary by contract; check your fee schedules for codes 98975–98986.
               </span>
             </div>
           );
         })()}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-          <div>
-            <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:6}}>IndiAide Adoption Rate</label>
-            <Toggle options={ADOPTION} value={adoptionKey} onChange={setAdoptionKey} />
-            <div style={{fontSize:11,color:"#94A3B8",marginTop:5}}>
-              % of caseload enrolled &amp; active →{" "}
-              <strong style={{color:BRAND}}>{fmtN(C.totalActive)} active{dual ? ` (Medicare ${fmtN(C.mcActive)} + Medicaid ${fmtN(C.mdActive)})` : ""}</strong>
-            </div>
-          </div>
-          <div>
-            <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:6}}>Clinician Time Per Patient / Month</label>
-            <Toggle options={CLINICIAN} value={clinicianKey} onChange={setClinicianKey} activeColor={GREEN} />
-            <div style={{fontSize:11,color:"#94A3B8",marginTop:5}}>
-              Management time + 1 interactive communication → bills{" "}
-              <strong style={{color:GREEN}}>{clin.codeStr}</strong>
-            </div>
-          </div>
-        </div>
       </div>
 
-      {/* ── KPI Cards (skipped in table mode — compact tiles above cover this) ── */}
-      {!isTableMode && (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
-          <KpiCard label={dual?"Combined Monthly":"Monthly Revenue"} value={fmt(C.combMonthly)} sub={dual?"Medicare + Medicaid":"recurring"} color={BRAND} inverted />
-          <KpiCard label={dual?"Combined Annual":"Annual Revenue"}   value={fmtK(C.combAnnual)} sub="recurring" color={BRAND} inverted />
-          <KpiCard label="Net Monthly"  value={fmt(C.netMonthly)} sub={`$${C.indiRate}/pt · ${C.indiLabel} tier`} color={GREEN} />
-          <KpiCard label="ROI"          value={`${C.roi}%`}       sub="return on platform" color={AMBER} />
-        </div>
-      )}
-
-      {/* ── Year 1 Setup Banner ───────────────────────────────────────────── */}
-      <div style={{background:AMBER_LIGHT,border:"1px solid #FDE68A",borderRadius:12,padding:"14px 20px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,flexWrap:"wrap"}}>
-        <div>
-          <div style={{fontSize:11,fontWeight:800,color:AMBER,textTransform:"uppercase",letterSpacing:"0.06em"}}>Year 1 Bonus — CPT 98975</div>
-          <div style={{fontSize:13,color:"#78350F",marginTop:2}}>Setup &amp; education · billed once per patient · triggers with 2+ active days</div>
-          <div style={{fontSize:11,color:"#92400E",marginTop:4,display:"flex",gap:16,flexWrap:"wrap"}}>
-            <span>Medicare: {fmtN(mcCount)} pts × {fmt(s.r75)} = <strong>{fmt(C.mcSetup)}</strong></span>
-            {dual && <span>Medicaid: {fmtN(mdCount)} pts × {fmt(s.m75)} = <strong>{fmt(C.mdSetup)}</strong></span>}
-          </div>
-        </div>
-        <div style={{textAlign:"right",flexShrink:0}}>
-          <div style={{fontSize:20,fontWeight:800,color:AMBER}}>+ {fmt(C.combSetup)}</div>
-          <div style={{fontSize:11,color:"#92400E",marginTop:2}}>= {fmtK(C.year1Total)} total in Year 1</div>
-        </div>
-      </div>
-
-      {/* ── Revenue Breakdown ─────────────────────────────────────────────── */}
+      {/* ── RTM assumptions ───────────────────────────────────────────────── */}
       <div style={card}>
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:700,color:SLATE,textTransform:"uppercase",letterSpacing:"0.06em"}}>Monthly Revenue Breakdown</div>
-          <div style={{fontSize:12,color:"#94A3B8",marginTop:4}}>
-            {dual
-              ? `${ADOPTION.find(a=>a.key===adoptionKey).label} adoption · Medicare ${fmtN(C.mcActive)} + Medicaid ${fmtN(C.mdActive)} active patients · ${s.name} 2026`
-              : `${ADOPTION.find(a=>a.key===adoptionKey).label} adoption · ${fmtN(C.mcActive)} active patients · ${s.name} Medicare 2026`
-            }
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+          <div>
+            <h2 style={sectionTitle}>RTM assumptions</h2>
+            <div style={sectionSub}>Share of your Medicare{dual ? " and Medicaid" : ""} patients ({fmtN(totalPatients)}) expected to meet each code each month. Change any number.</div>
+          </div>
+          <button onClick={resetAssumptions} style={{background:"none",border:`1px solid ${BRAND}55`,color:BRAND,borderRadius:8,
+            padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Reset to defaults</button>
+        </div>
+
+        <div style={{marginTop:12}}>
+          {assumptionRows.map(r => (
+            <div key={r.key} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid #F1F5F9"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",flexWrap:"wrap"}}>
+                  {r.badge && <CodeBadge code={r.badge} color={BRAND} bg={BRAND_BG} />}
+                  <span style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>{r.name}</span>
+                </div>
+                <div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>{r.sub}</div>
+              </div>
+              <div style={{textAlign:"right",fontSize:12,color:"#475569",minWidth:74}}>
+                <strong style={{color:"#0F172A"}}>{fmtN(r.pts)}</strong> patients
+              </div>
+              <PctInput value={r.val} onChange={r.set} label={`${r.name} percent`} />
+            </div>
+          ))}
+
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0 0"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>Clinician minutes per patient per month</div>
+              <div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>
+                {C.want ? <>Bills <strong style={{color:GREEN}}>{C.wantStr}</strong> · 10–19 min = 98979 · 20–39 = 98980 · 40+ adds 98981 per 20 min</>
+                        : "Under 10 minutes doesn't meet a clinician-time code."}
+              </div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <input type="number" inputMode="numeric" min={0} max={120} step={5} value={minutes} aria-label="Clinician minutes per patient per month"
+                onChange={e => setMinutes(Math.max(0, Math.min(120, parseInt(e.target.value,10) || 0)))}
+                style={{width:68,padding:"7px 8px",border:"1.5px solid #E2E8F0",borderRadius:8,fontSize:16,fontWeight:700,
+                  color:"#0F172A",textAlign:"right",boxSizing:"border-box",background:"#fff",colorScheme:"light"}} />
+              <span style={{fontSize:13,color:SLATE}}>min</span>
+            </div>
+          </div>
+
+          {C.capped && (
+            <div style={{marginTop:12,fontSize:11,color:AMBER,lineHeight:1.5}}>
+              Codes are capped at the engaged share ({engagedPct}%): a patient must be engaged in RTM before any code can be billed.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── IndiAide software ─────────────────────────────────────────────── */}
+      <div style={card}>
+        <h2 style={sectionTitle}>IndiAide software</h2>
+        <div style={{...sectionSub,marginBottom:14}}>
+          ${PRICING.clinicianMonthly} per clinician per month, or ${PRICING.clinicianAnnual} per year prepaid · ${PRICING.rtmPatientMonthly} per RTM patient per month with 2+ active days · unlimited non-RTM home-program patients included.
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:16,marginBottom:14}}>
+          <div>
+            <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:6}}>Clinician accounts</label>
+            <input type="number" inputMode="numeric" min={1} max={999} value={clinicians}
+              onChange={e => setClinicians(Math.max(0, Math.min(999, parseInt(e.target.value,10) || 0)))}
+              style={{...numInput,border:`1.5px solid ${BRAND}44`}} />
+          </div>
+          <div>
+            <label style={{display:"block",fontSize:12,fontWeight:600,color:SLATE,marginBottom:6}}>Clinician billing</label>
+            <Toggle value={plan} onChange={setPlan} options={[
+              { key:"monthly", label:"Monthly", desc:`$${PRICING.clinicianMonthly}/clinician/mo` },
+              { key:"annual",  label:"Annual",  desc:`$${PRICING.clinicianAnnual}/clinician/yr` },
+            ]} />
           </div>
         </div>
 
-        {dual ? (
-          /* ── Two-column payer view ── */
-          <>
-            <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:0,marginBottom:16}}>
-              <PayerCol
-                label="Medicare"  color={BLUE}  bg={BLUE_LIGHT}
-                totalCount={mcCount} activePts={C.mcActive}
-                devPts={C.mcDevPts} devRate={s.r77} devRev={C.mcDevRev}
-                clinPts={C.mcClinPts} clinRate={C.mcClinR} clinRev={C.mcClinRev}
-                clinUncovered={false}
-                codeStr={clin.codeStr}
-                monthly={C.mcMonthly} annual={C.mcAnnual} setup={C.mcSetup}
-              />
-              <div style={{width:1,background:"#E2E8F0",margin:"0 16px"}} />
-              <PayerCol
-                label="Medicaid" color={GREEN} bg={GREEN_LIGHT}
-                totalCount={mdCount} activePts={C.mdActive}
-                devPts={C.mdDevPts} devRate={s.m77} devRev={C.mdDevRev}
-                devUncovered={C.mdDevUncov} devNote={C.mdDevNote}
-                clinPts={C.mdClinPts} clinRate={C.mdClinR} clinRev={C.mdClinRev}
-                clinUncovered={C.mdClinUncov}
-                clinNote={C.mdClinNote}
-                clinFallbackNote={C.mdClinFallbackNote}
-                codeStr={C.mdTier ? C.mdTier.codeStr : clin.codeStr}
-                monthly={C.mdMonthly} annual={C.mdAnnual} setup={C.mdSetup}
-              />
-            </div>
-            {/* Expanders */}
-            <div style={{borderTop:"1px solid #F1F5F9",paddingTop:12,display:"grid",gridTemplateColumns: C.mdClinFallback ? "1fr 1fr 1fr" : "1fr 1fr",gap:16}}>
-              <BillingDetail id="device" open={expandedCode} onToggle={setExpandedCode} info={BILLING_INFO.device} />
-              <BillingDetail id="clinician" open={expandedCode} onToggle={setExpandedCode}
-                info={C.mdClinFallback ? {...BILLING_INFO[billKey], title:`Medicare: ${BILLING_INFO[billKey].title}`} : BILLING_INFO[billKey]} />
-              {C.mdClinFallback && (
-                <BillingDetail id="clinician_md" open={expandedCode} onToggle={setExpandedCode}
-                  info={{...BILLING_INFO[`clinician_${C.mdTier.key}`], title:`Medicaid: ${BILLING_INFO[`clinician_${C.mdTier.key}`].title}`}} />
-              )}
-            </div>
-          </>
-        ) : (
-          /* ── Single Medicare column ── */
-          <>
-            <div style={{padding:"12px 0",borderBottom:"1px solid #F1F5F9"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
-                    <CodeBadge code="98977 / 98985" color={BRAND} bg={BRAND_BG} />
-                    <span style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>Device Supply</span>
-                  </div>
-                  <div style={{fontSize:11,color:"#94A3B8"}}>{fmtN(C.mcDevPts)} patients × {fmt(s.r77)} · ~50% of active patients billed monthly</div>
-                  <BillingDetail id="device" open={expandedCode} onToggle={setExpandedCode} info={BILLING_INFO.device} />
-                </div>
-                <div style={{textAlign:"right",flexShrink:0}}>
-                  <div style={{fontSize:16,fontWeight:800,color:BRAND}}>{fmt(C.mcDevRev)}</div>
-                  <div style={{fontSize:10,color:"#94A3B8"}}>per month</div>
-                </div>
+        {C.custom ? customBox : (
+          <div>
+            {[
+              [ plan === "annual"
+                  ? `Clinician accounts · ${fmtN(C.seats)} × $${PRICING.clinicianAnnual}/yr, prepaid`
+                  : `Clinician accounts · ${fmtN(C.seats)} × $${PRICING.clinicianMonthly}/mo`,
+                plan === "annual" ? `${fmt(C.seatAnnual)} upfront` : `${fmt(C.seatMonthly)}/mo` ],
+              [ `RTM patients · ${fmtN(C.engagedTotal)} × $${PRICING.rtmPatientMonthly}/mo`, `${fmt(C.rtmMonthly)}/mo` ],
+            ].map(([l,v]) => (
+              <div key={l} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"9px 0",borderBottom:"1px solid #F1F5F9",fontSize:13}}>
+                <span style={{color:"#334155"}}>{l}</span><strong style={{color:"#0F172A",whiteSpace:"nowrap"}}>{v}</strong>
               </div>
+            ))}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginTop:14}}>
+              <KpiCard label="Due upfront" value={fmt(C.upfront)} sub={plan === "annual" ? "annual clinician plan" : "no upfront charge"} color={SLATE} />
+              <KpiCard label="Ongoing / month" value={fmt(C.ongoingMonthly)} sub={plan === "annual" ? "RTM patients only" : "clinicians + RTM patients"} color={SLATE} />
+              <KpiCard label="Software, Year 1" value={fmt(C.softwareYear)} sub="assumes steady monthly usage" color={BRAND} />
             </div>
-            <div style={{padding:"12px 0",borderBottom:"1px solid #F1F5F9"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
-                    <CodeBadge code={clin.codeStr} color={GREEN} bg={GREEN_LIGHT} />
-                    <span style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>Clinician Time — {clin.label}/month</span>
-                  </div>
-                  <div style={{fontSize:11,color:"#94A3B8"}}>{fmtN(C.mcClinPts)} patients × {fmt(C.mcClinR)} · ~50% of active patients billed monthly</div>
-                  <BillingDetail id="clinician" open={expandedCode} onToggle={setExpandedCode} info={BILLING_INFO[billKey]} />
-                </div>
-                <div style={{textAlign:"right",flexShrink:0}}>
-                  <div style={{fontSize:16,fontWeight:800,color:GREEN}}>{fmt(C.mcClinRev)}</div>
-                  <div style={{fontSize:10,color:"#94A3B8"}}>per month</div>
-                </div>
-              </div>
+            <div style={{marginTop:12,fontSize:12,color: plan === "annual" ? GREEN : "#475569"}}>
+              {plan === "annual"
+                ? <>Annual billing saves <strong>{fmt(C.prepaidSavings)}</strong> a year on clinician accounts (12 months for the price of 10).</>
+                : <>Switching to annual billing would save <strong>{fmt(C.prepaidSavings)}</strong> a year on clinician accounts.</>}
             </div>
-            {/* Medicare-only notice */}
-            <div style={{marginTop:12,padding:"10px 14px",background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:8,fontSize:12,color:"#64748B"}}>
-              💡 <strong>{s.name}</strong> Medicaid does not currently reimburse RTM codes.
-              Switch to one of the <strong style={{color:GREEN}}>{DUAL_LIST.length} ✅ states</strong> in the dropdown to see Medicaid revenue alongside Medicare.
-            </div>
-          </>
+          </div>
+        )}
+      </div>
+
+      {/* ── Estimated financial impact ────────────────────────────────────── */}
+      <div style={card}>
+        <h2 style={sectionTitle}>Estimated financial impact</h2>
+        <div style={{...sectionSub,marginBottom:14}}>Reimbursement minus IndiAide software. A negative result means estimated costs exceed estimated reimbursement.</div>
+
+        {!isTableMode && (
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:16}}>
+            <KpiCard label="Est. reimbursement / mo" value={fmt(C.reimbMonthly)} sub="recurring" color={BRAND} inverted />
+            <KpiCard label="IndiAide / mo" value={C.custom ? "Custom" : fmt(C.softwareMonthly)} sub={plan === "annual" ? "monthly equivalent" : "monthly"} color={SLATE} />
+            <KpiCard label="Est. net / mo" value={C.custom ? "—" : fmt(C.netMonthly)} sub="recurring" color={C.custom ? SLATE : netColor(C.netMonthly)} />
+            <KpiCard label="Est. net, Year 1" value={C.custom ? "—" : fmtK(C.netYear1)} sub="incl. one-time setup" color={C.custom ? SLATE : netColor(C.netYear1)} />
+          </div>
         )}
 
-        {/* Combined total */}
-        <div style={{marginTop:16,borderTop:"2px solid #E2E8F0",paddingTop:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{fontSize:14,fontWeight:700,color:"#0F172A"}}>
-              {dual ? "Combined Monthly Total" : "Monthly Total"}
-            </div>
-            <div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>
-              IndiAide: {fmt(C.indiMonthly)}/mo · {C.indiLabel} tier · ${C.indiRate}/active patient
-            </div>
-          </div>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:22,fontWeight:800,color:BRAND}}>{fmt(C.combMonthly)}</div>
-            <div style={{fontSize:12,fontWeight:600,color:GREEN}}>Net {fmt(C.netMonthly)}/mo</div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Scenario Comparison ───────────────────────────────────────────── */}
-      <div style={card}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
-          <div>
-            <div style={{fontSize:12,fontWeight:700,color:SLATE,textTransform:"uppercase",letterSpacing:"0.06em"}}>Clinician Time Comparison</div>
-            <div style={{fontSize:12,color:"#94A3B8",marginTop:3}}>
-            {ADOPTION.find(a=>a.key===adoptionKey).label} adoption · {fmtN(C.totalActive)} active patients · {s.name}
-            </div>
-          </div>
-          <div style={{fontSize:11,color:"#94A3B8"}}>Click a row to update ↑</div>
-        </div>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
             <thead>
               <tr style={{borderBottom:"2px solid #F1F5F9"}}>
-                {(dual
-                  ? ["Time/Mo","Code","Medicare","Medicaid","Combined","Net Annual","ROI"]
-                  : ["Time/Mo","Code","Monthly","Annual","Net Annual","ROI"]
-                ).map(h => (
-                  <th key={h} style={{
-                    padding:"6px 8px",
-                    textAlign:(h==="Time/Mo"||h==="Code")?"left":"right",
-                    fontSize:10,fontWeight:700,color:"#94A3B8",
-                    textTransform:"uppercase",letterSpacing:"0.04em",whiteSpace:"nowrap",
-                  }}>{h}</th>
-                ))}
+                <th style={{textAlign:"left",padding:"6px 4px",fontSize:11,color:"#94A3B8",fontWeight:600}}></th>
+                <th style={{textAlign:"right",padding:"6px 4px",fontSize:11,color:"#94A3B8",fontWeight:600}}>Monthly</th>
+                <th style={{textAlign:"right",padding:"6px 4px",fontSize:11,color:"#94A3B8",fontWeight:600}}>Year 1</th>
               </tr>
             </thead>
             <tbody>
-              {compRows.map(row => {
-                const on = row.key === clinicianKey;
-                return (
-                  <tr key={row.key} onClick={() => setClinicianKey(row.key)} style={{
-                    background:on?BRAND_LIGHT:"transparent",
-                    borderLeft:`3px solid ${on?BRAND:"transparent"}`,
-                    borderBottom:"1px solid #F8FAFC",
-                    cursor:"pointer",transition:"background 0.1s",
-                  }}>
-                    <td style={{padding:"10px 8px",fontWeight:on?700:500,color:on?BRAND:SLATE}}>
-                      {row.label}
-                      {on && <span style={{marginLeft:6,fontSize:9,background:BRAND,color:"#fff",borderRadius:999,padding:"1px 5px"}}>Active</span>}
-                    </td>
-                    <td style={{padding:"10px 8px",fontFamily:"monospace",fontSize:11,color:on?BRAND:"#94A3B8"}}>
-                      {row.codeStr}
-                      {row.mdCUncov && <span style={{marginLeft:4,fontSize:9,color:"#94A3B8",fontFamily:"sans-serif",fontStyle:"italic"}}>MD: {row.key==="low"?"98979":row.key==="mid"?"98980":"98980+81"} N/C</span>}
-                      {row.mdCFallback && <span style={{marginLeft:4,fontSize:9,color:AMBER,fontFamily:"sans-serif",fontStyle:"italic"}}>MD → {row.mdTierCodeStr}</span>}
-                    </td>
-                    {dual && <td style={{padding:"10px 8px",textAlign:"right",color:BLUE,fontWeight:600}}>{fmt(row.mcMr)}</td>}
-                    {dual && <td style={{padding:"10px 8px",textAlign:"right",color:GREEN,fontWeight:600}}>{fmt(row.mdMr)}</td>}
-                    <td style={{padding:"10px 8px",textAlign:"right",fontWeight:700,color:on?BRAND:"#1e293b"}}>
-                      {dual ? fmt(row.mr) : fmt(row.mcMr)}
-                    </td>
-                    {!dual && <td style={{padding:"10px 8px",textAlign:"right",color:on?BRAND:SLATE}}>{fmtK(row.mr * 12)}</td>}
-                    <td style={{padding:"10px 8px",textAlign:"right",fontWeight:700,color:GREEN}}>{fmtK(row.net)}</td>
-                    <td style={{padding:"10px 8px",textAlign:"right",fontWeight:800,color:on?AMBER:"#94A3B8"}}>{row.roi}%</td>
-                  </tr>
-                );
-              })}
+              {[
+                ["Est. RTM reimbursement (recurring)", fmt(C.reimbMonthly), fmt(C.reimbMonthly * 12)],
+                ["Est. setup reimbursement (98975, one-time)", "—", fmt(C.setupTotal)],
+                ["IndiAide software", C.custom ? "Custom" : fmt(-C.softwareMonthly), C.custom ? "Custom" : fmt(-C.softwareYear)],
+              ].map(([l,a,b]) => (
+                <tr key={l} style={{borderBottom:"1px solid #F8FAFC"}}>
+                  <td style={{padding:"9px 4px",color:"#334155"}}>{l}</td>
+                  <td style={{padding:"9px 4px",textAlign:"right",color:"#0F172A",whiteSpace:"nowrap"}}>{a}</td>
+                  <td style={{padding:"9px 4px",textAlign:"right",color:"#0F172A",whiteSpace:"nowrap"}}>{b}</td>
+                </tr>
+              ))}
+              <tr style={{borderTop:"2px solid #E2E8F0"}}>
+                <td style={{padding:"11px 4px",fontWeight:700,color:"#0F172A"}}>Est. net financial contribution</td>
+                <td style={{padding:"11px 4px",textAlign:"right",fontWeight:800,whiteSpace:"nowrap",color:C.custom ? SLATE : netColor(C.netMonthly)}}>{C.custom ? "—" : fmt(C.netMonthly)}</td>
+                <td style={{padding:"11px 4px",textAlign:"right",fontWeight:800,whiteSpace:"nowrap",color:C.custom ? SLATE : netColor(C.netYear1)}}>{C.custom ? "—" : fmt(C.netYear1)}</td>
+              </tr>
             </tbody>
           </table>
         </div>
+        {plan === "annual" && !C.custom && (
+          <div style={{fontSize:11,color:"#94A3B8",marginTop:8}}>Monthly software shown as a monthly equivalent of the prepaid annual plan.</div>
+        )}
+      </div>
+
+      {/* ── Reimbursement breakdown by payer and code ─────────────────────── */}
+      <div style={card}>
+        <h2 style={sectionTitle}>Reimbursement by code</h2>
+        <div style={{...sectionSub,marginBottom:14}}>{s.name} · 2026 Medicare rates{dual ? " and Medicaid fee schedule rates" : ""}.</div>
+
+        <PayerBreakdown label="Medicare" color={BLUE} bg={BLUE_LIGHT} P={C.mc} stateName={s.name}
+          expandedCode={expandedCode} setExpandedCode={setExpandedCode} idPrefix="mc" />
+        {dual ? (
+          <PayerBreakdown label="Medicaid" color={GREEN} bg={GREEN_LIGHT} P={C.md} stateName={s.name}
+            expandedCode={expandedCode} setExpandedCode={setExpandedCode} idPrefix="md" />
+        ) : (
+          <div style={{padding:"10px 14px",background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:8,fontSize:12,color:"#64748B"}}>
+            <strong>{s.name}</strong> Medicaid does not currently reimburse RTM codes.
+          </div>
+        )}
       </div>
 
       {/* ── CTA ───────────────────────────────────────────────────────────── */}
-      <div style={{background:BRAND,borderRadius:18,padding:"32px 28px",color:"#fff",boxShadow:`0 8px 32px ${BRAND}33`,textAlign:"center"}}>
-        <div style={{fontSize:13,opacity:0.8,lineHeight:1.6,marginBottom:18,maxWidth:520,margin:"0 auto 18px"}}>
+      <div style={{background:BRAND,borderRadius:18,padding:"30px clamp(10px,4vw,22px)",color:"#fff",boxShadow:`0 8px 32px ${BRAND}33`,textAlign:"center"}}>
+        <div style={{fontSize:13,opacity:0.8,lineHeight:1.6,maxWidth:520,margin:"0 auto 18px"}}>
           You spend time between sessions on your patients, reviewing their progress, adjusting their home program, checking in. That work doesn't fall through the cracks. But for most clinics, it also doesn't get reimbursed.
         </div>
-        <div style={{fontSize:24,fontWeight:800,lineHeight:1.2,marginBottom:10}}>
-          {fmtK(C.combAnnual)}/year{dual ? " across both payers" : ""}, from work you're already doing.
+        <div style={{fontSize:"clamp(20px,4.5vw,24px)",fontWeight:800,lineHeight:1.25,marginBottom:10}}>
+          An estimated {fmtK(C.reimbMonthly * 12)} a year in RTM reimbursement, from work you're already doing.
         </div>
-        <div style={{fontSize:13,opacity:0.82,lineHeight:1.65,marginBottom:20,maxWidth:500,margin:"0 auto 20px"}}>
-          IndiAide tracks everything {dual ? "Medicare and Medicaid need" : "Medicare needs"} to see for RTM billing — active days, clinician time, patient communication — automatically.
+        <div style={{fontSize:13,opacity:0.82,lineHeight:1.65,maxWidth:500,margin:"0 auto 20px"}}>
+          IndiAide tracks what {dual ? "Medicare and Medicaid need" : "Medicare needs"} to see for RTM billing — active days, clinician time, patient communication — automatically.
         </div>
-        <div style={{borderLeft:"3px solid rgba(255,255,255,0.4)",paddingLeft:16,marginBottom:24,textAlign:"left",maxWidth:500,margin:"0 auto 24px"}}>
+        <div style={{borderLeft:"3px solid rgba(255,255,255,0.4)",paddingLeft:16,textAlign:"left",maxWidth:500,margin:"0 auto 24px"}}>
           <div style={{fontSize:14,fontStyle:"italic",opacity:0.9,lineHeight:1.5}}>
             "This is the missing piece. This is something we've needed for so long."
           </div>
@@ -1272,17 +1251,17 @@ export default function ROICalculator() {
         </div>
       </div>
 
-      {/* ── Disclaimer ────────────────────────────────────────────────────── */}
-      <p style={{textAlign:"center",fontSize:10,color:"#94A3B8",marginTop:14,lineHeight:1.75,maxWidth:680}}>
-        Medicare estimates use 2026 CMS Physician Fee Schedule NonFac rates for {s.name}.
-        {dual && ` Medicaid estimates use Q3 2026 ${s.name} state fee schedule rates.`}
-        {" "}Device supply assumes 98977 (musculoskeletal, 16–30 active days), billable for approximately 50% of active patients per month.
-        Clinician time assumes approximately 50% of active patients billed monthly, requiring documented management time plus at least one interactive communication.
+      {/* ── Assumptions & disclaimer ──────────────────────────────────────── */}
+      <p style={{textAlign:"center",fontSize:10,color:"#94A3B8",margin:"14px auto 0",lineHeight:1.75,maxWidth:680}}>
+        <strong>Estimates only — reimbursement is not guaranteed.</strong> Actual reimbursement depends on payer coverage, applicable billing requirements, documentation and clinical circumstances.
+        {" "}Medicare estimates use 2026 CMS Physician Fee Schedule non-facility rates for {s.name}.
+        {dual && ` Medicaid estimates use 2026 ${s.name} state fee schedule rates.`}
         {mdCoverageNote}
-        {" "}Adoption rate reflects estimated proportion of caseload actively enrolled and using IndiAide.
-        Setup code 98975 billed once per episode of care.
-        IndiAide qualifies as Software as a Medical Device (SaMD) — no physical device or DME required.
-        Actual reimbursement varies by payer mix, patient eligibility, and clinical documentation. For informational purposes only.
+        {" "}Assumptions: {engagedPct}% of patients engaged in RTM (2+ active days a month); {setupPct}% billed 98975 once per episode of care, counted in Year 1;
+        {" "}{devicePct}% billed device supply monthly (98985 for 2–15 days or 98977 for 16–30 days, paid at the same 2026 Medicare rate);
+        {" "}{clinicianPct}% billed clinician time monthly at {minutes} minutes ({C.wantStr}), each requiring at least one interactive communication.
+        {" "}Year 1 assumes consistent monthly usage. IndiAide software fees are separate from insurance reimbursement.
+        {" "}IndiAide qualifies as Software as a Medical Device (SaMD) — no physical device or DME required.
       </p>
 
       </>}
