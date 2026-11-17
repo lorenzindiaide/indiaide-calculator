@@ -188,6 +188,8 @@ const fmt  = n => { const v = Math.round(n); return (v < 0 ? "−" : "") + usd0.
 const fmtC = n => usd2.format(n);   // rates, with cents
 const fmtK = n => Math.abs(n) >= 100000 ? `${n < 0 ? "−" : ""}$${(Math.abs(n)/1000).toFixed(0)}K` : fmt(n);
 const fmtN = n => Math.round(n).toLocaleString();
+// Count + word with the right singular/plural: plural(1, "patient") → "1 patient"
+const plural = (n, word, many = word + "s") => `${fmtN(n)} ${Math.round(n) === 1 ? word : many}`;
 const RED  = "#DC2626";
 const netColor = n => (Math.round(n) < 0 ? RED : GREEN);
 
@@ -682,15 +684,15 @@ function PayerBreakdown({ label, color, bg, P, stateName, expandedCode, setExpan
       <div style={{display:"inline-flex",alignItems:"center",gap:6,background:bg,borderRadius:6,padding:"3px 10px",marginBottom:4}}>
         <div style={{width:7,height:7,borderRadius:"50%",background:color}} />
         <span style={{fontSize:12,fontWeight:700,color}}>{label}</span>
-        <span style={{fontSize:11,color,opacity:0.75}}>{fmtN(P.count)} patients · {fmtN(P.engagedPts)} engaged</span>
+        <span style={{fontSize:11,color,opacity:0.75}}>{plural(P.count, "patient")} · {fmtN(P.engagedPts)} engaged</span>
       </div>
 
       {row("dev", "98985 / 98977", "Device supply",
-        `${fmtN(P.devPts)} patients × ${fmtC(P.devRate || 0)}`, P.devRev, "per month",
+        `${plural(P.devPts, "patient")} × ${fmtC(P.devRate || 0)}`, P.devRev, "per month",
         P.devCovered ? null : `98985/98977 not reimbursed under ${stateName} ${label}.`, BILLING_INFO.device)}
 
       {row("clin", P.clin ? P.clin.codeStr : (P.wantStr === "None" ? "98979–98981" : P.wantStr), "Clinician time",
-        `${fmtN(P.clinPts)} patients × ${fmtC(P.clin ? P.clin.rate : 0)}`, P.clinRev, "per month",
+        `${plural(P.clinPts, "patient")} × ${fmtC(P.clin ? P.clin.rate : 0)}`, P.clinRev, "per month",
         P.clin ? null : (P.wantStr === "None"
           ? "Under 10 minutes a month doesn't meet any clinician-time code."
           : `${P.wantStr} not reimbursed under ${stateName} ${label}.`),
@@ -702,7 +704,7 @@ function PayerBreakdown({ label, color, bg, P, stateName, expandedCode, setExpan
       </div>
 
       {row("setup", "98975", "Setup & education",
-        `${fmtN(P.setupPts)} patients × ${fmtC(P.setupRate || 0)}`, P.setupRev, "one-time",
+        `${plural(P.setupPts, "patient")} × ${fmtC(P.setupRate || 0)}`, P.setupRev, "one-time",
         P.setupCovered ? null : `98975 not reimbursed under ${stateName} ${label}.`, BILLING_INFO.setup)}
     </div>
   );
@@ -1000,7 +1002,7 @@ export default function ROICalculator() {
               onChange={e => setMcCount(Math.max(0,Math.min(999999,parseInt(e.target.value)||0)))}
               style={{...numInput,border:`1.5px solid ${BLUE}44`}} />
             <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>
-              {adultPatients>0 ? `${adultsMcPct}% of ${fmtN(adultPatients)} adults` : "Medicare caseload per month"}
+              {adultPatients>0 ? `${adultsMcPct}% of ${plural(adultPatients, "adult")}` : "Medicare caseload per month"}
             </div>
           </div>
           <div>
@@ -1073,7 +1075,7 @@ export default function ROICalculator() {
                 <div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>{r.sub}</div>
               </div>
               <div style={{textAlign:"right",fontSize:12,color:"#475569",minWidth:74}}>
-                <strong style={{color:"#0F172A"}}>{fmtN(r.pts)}</strong> patients
+                <strong style={{color:"#0F172A"}}>{fmtN(r.pts)}</strong> {Math.round(r.pts) === 1 ? "patient" : "patients"}
               </div>
               <PctInput value={r.val} onChange={r.set} label={`${r.name} percent`} />
             </div>
