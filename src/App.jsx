@@ -84,7 +84,7 @@ const SINGLE_LIST = Object.entries(ALL_STATES).filter(([,d]) => !isDualState(d))
 // ─── IndiAide pricing — edit here when prices change ──────────────────────────
 const PRICING = {
   clinicianMonthly:  29,   // $ per clinician per month (monthly plan)
-  clinicianAnnual:   290,  // $ per clinician per year, prepaid (12 months for the price of 10)
+  clinicianAnnual:   289,  // $ per clinician per year, prepaid
   rtmPatientMonthly: 20,   // $ per RTM patient per month with 2+ active days
   customProposalAt:  10,   // clinicians at or above this get a custom proposal, not a price
 };
